@@ -1,0 +1,87 @@
+Experiment 001 — short-drift-matched-beams
+Companion notes to 001_short-drift-matched-beams.pdf
+Date: 2026-07-23 (revised same day — see FRAME CORRECTION below)
+
+
+FRAME CORRECTION
+----------------
+The first version of this experiment used `limTOD.GDSM_sky_model` directly,
+which returns pygdsm's native *galactic*-frame map without rotating to
+equatorial — so the quoted (RA, Dec) patch actually sampled the GDSM at
+those values read as galactic (l, b), i.e. near-plane sky at b ≈ +9 rather
+than the intended b ≈ +50 high-latitude patch. All results were re-run with
+`ska_common.gdsm_equatorial_sky_model` (galactic → celestial rotation at
+native resolution); the PDF was regenerated in place. The repo CHANGELOG
+carries a known-issues entry — the DSA examples are affected by the same
+mislabeling.
+
+
+SETUP
+-----
+Short drift scan at 350 MHz (SKA-Mid Band 1 low end) with an SKA-Mid-like
+15 m dish at the Karoo site. Telescope parked at az = 0° (north-facing
+meridian); elevation stepped once per night: 52° / 50° / 48° over 3
+consecutive sidereal nights (1 h/night, dt = 2 s, 5400 samples total).
+Nights offset by exactly one sidereal day, so all cover the same RA
+window: RA ≈ 151°–166°, Dec ≈ 7°–11°, galactic latitude b ≈ +50°
+(genuinely, after the frame correction; sky brightness ~19–40 K).
+Sky: GDSM rotated to equatorial, nside = 64. Noise: default limTOD 1/f
+flicker gain noise (f0 = 1.335e-5, knee fc ≈ 1.1 mHz, alpha = 2) +
+fractional white noise (var 2.5e-6), seeded per night (seed = 0 + night),
+same seed shared across beams so all scenarios see identical noise.
+
+Two beam models through the identical pipeline:
+  - Gaussian: FWHM = 1.22 λ/D ≈ 3.99°, no sidelobes (idealised).
+  - Tapered aperture ("realistic Airy"): circular-aperture diffraction,
+    −14 dB edge taper; FWHM ≈ 3.84°, sidelobe rings every ~3.3° (first
+    at −23.4 dB), ~0.9% of beam power beyond 10° off-axis.
+
+Map-making: HPW (Wiener) with beam-smoothed-truth prior mean
+(σ = std of truth) and explicit per-sample noise variance
+WHITE_VAR × (op @ truth)². Solved without high-pass filtering and with a
+2 mHz order-2 Butterworth high-pass.
+
+
+RESULTS (residual RMS vs GDSM truth, on each beam's own pixel mask)
+-------------------------------------------------------------------
+  gauss  / no HP       1300 mK
+  gauss  / HP 2 mHz    1174 mK
+  airy   / no HP       1227 mK
+  airy   / HP 2 mHz    1091 mK
+
+1. The 2 mHz high-pass gives a modest ~10% RMS improvement at high
+   latitude: residual 1/f above the ~1.1 mHz knee still costs slightly
+   more than the drift signal the filter removes. (This trade REVERSES
+   on the galactic plane — see experiment 003.) The DSA-style 30 mHz
+   cutoff remains unavailable in drift mode: it would sit above the
+   entire ≲ 1 mHz signal band (one beam crossing ≈ 16 min).
+2. Matched-beam recovery with realistic sidelobes is not worse than the
+   idealised Gaussian — when the operator models the beam that produced
+   the data, sidelobe pickup is absorbed self-consistently.
+
+
+CAVEATS
+-------
+- MASK MISMATCH: gauss and airy rows use different pixel selections
+  (317 vs 277 pixels — the tapered main lobe is slightly narrower, so
+  the 5% stacked-sensitivity threshold keeps fewer edge pixels). The
+  gauss-vs-airy difference is NOT a clean sidelobe cost; the controlled
+  comparison is experiment 002.
+- Absolute RMS (~1.2 K) is not a survey sensitivity forecast: limTOD's
+  noise is fractional (absolute noise scales with the sky temperature),
+  the drift operator has no cross-linking, and total integration is 3 h.
+  Treat numbers as relative between scenarios.
+- The 2 mHz cutoff is chosen by eye relative to the 1/f knee, not
+  optimised; a proper cutoff sweep is on the to-do list.
+- Prior is a beam-smoothed copy of the truth (strong external prior);
+  low RMS partly reflects "the prior wasn't overruled".
+- Single frequency channel, single noise realization per scenario,
+  intensity only, no RFI/atmosphere/ground pickup.
+
+
+REPRODUCE
+---------
+Run examples/SKA/ska_drift_scan.ipynb top to bottom (caches make it
+fast; delete simulated_TODs_ska_drift_{gauss,airy}.npz and the
+mapmaker_ops_*.pkl files to regenerate from scratch). Seeds are fixed,
+so regenerated TODs are bit-identical.

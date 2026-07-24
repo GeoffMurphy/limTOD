@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Known issues
+
+- `limTOD.sky_model.GDSM_sky_model` returns pygdsm's native **galactic**-frame
+  map without rotating to equatorial, while `TODSim` and `HPW_mapmaking` point
+  the beam in equatorial coordinates. Any analysis using it therefore observes
+  the GDSM with its galactic coordinates silently reinterpreted as (RA, Dec) —
+  self-consistent between forward model and map-maker, but the sky content at
+  a quoted (RA, Dec) is wrong (e.g. the galactic plane lies along Dec ≈ 0
+  instead of its true celestial track). This affects the patch descriptions in
+  `examples/DSA/`. The SKA notebooks now use
+  `examples/SKA/ska_common.gdsm_equatorial_sky_model`, which rotates G → C at
+  native resolution before degrading; consider applying the same fix (or an
+  explicit `coord` argument) to `GDSM_sky_model` itself in a future release.
+
+### Added
+
+- `examples/SKA/` — drift-scan strategy notebook (`ska_drift_scan.ipynb`) for an
+  SKA-Mid-like 15 m dish at the Karoo site: telescope parked at fixed (Az, El),
+  elevation stepped per sidereal night, map-making with and without the
+  high-pass filter. Shared helpers in `examples/SKA/ska_common.py`
+  (chromatic 1.22 λ/D Gaussian beam, drift-night timing, AltAz→ICRS track).
+- Tapered-aperture ("realistic Airy") beam model in `examples/SKA/ska_common.py`
+  (closed-form circular-aperture diffraction with configurable edge taper;
+  first sidelobe ≈ −23 dB at the default −14 dB taper). The drift-scan
+  notebook now runs the Gaussian and tapered-aperture beams through the
+  identical pipeline to isolate the cost of sidelobes in drift-scan mode.
+- Beam-mismatch scenario in the drift-scan notebook (tapered-aperture sky
+  solved with the Gaussian operator — the cost of *unmodelled* sidelobes),
+  per-night noise seeding shared across beams so scenario comparisons use
+  identical noise realizations, and a numbered experiment-record PDF archive
+  (`examples/SKA/results/`, written by `ska_common.save_results_pdf`) with
+  companion `.txt` notes holding findings and caveats.
+- `examples/SKA/ska_drift_galplane.ipynb` — galactic-plane sidelobe stress
+  test (experiment 003), plus `ska_common.gdsm_equatorial_sky_model`, the
+  galactic→celestial-rotated GDSM wrapper that the frame issue above made
+  necessary (all SKA experiments re-run with it).
+- Power-spectrum comparison in `ska_drift_scan.ipynb`: 1D pseudo-Cℓ per
+  scenario (transfer function T_ℓ and truth-correlation r_ℓ, recipe from
+  `examples/DSA/scripts/compare_power_spectra.py`) and a 2D flat-sky power
+  spectrum of the map residual, which resolves the drift-scan 1/f signature
+  Cℓ integrates away — a band at low ℓ_Dec extended in ℓ_RA (the drift is
+  coherent across the sidereal-offset Dec rows), suppressed by the 2 mHz
+  high-pass.
+
 ## [1.2.0] - 2025-10-06
 
 ### Added

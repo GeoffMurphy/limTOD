@@ -1,0 +1,80 @@
+Experiment 003 — galplane-drift-sidelobe-stress
+Companion notes to 003_galplane-drift-sidelobe-stress.pdf
+Date: 2026-07-23
+
+
+SETUP
+-----
+Galactic-plane sidelobe stress test. Identical telescope, beams, noise
+seeds, and map-making recipe as experiments 001/002 — the only change is
+the LST window: start 2024-04-16 03:34 UTC (LST ≈ 280°), so the same
+az = 0°, el = 52°/50°/48° drift sweeps the Dec ≈ +9° strip across the
+galactic plane, b = +7° → −6°, crossing at l ≈ 43° (inner galaxy). The
+beam-averaged TOD peaks at ~290 K vs ~45 K baseline; the airy − gauss
+TOD difference reaches ±5 K as the sidelobe rings lead/trail the main
+lobe over the plane. Sky: GDSM rotated to equatorial (this experiment
+was the one that exposed the galactic-frame bug in
+`limTOD.GDSM_sky_model` — its first run showed no plane crossing at all;
+see 001's FRAME CORRECTION note and the repo CHANGELOG).
+
+Scenarios as in 001/002: matched gauss, matched airy, and mismatch
+(tapered-aperture sky through the Gaussian operator = unmodelled
+sidelobes, sharing the gauss operator, mask, prior, and noise).
+
+
+RESULTS
+-------
+Residual RMS vs truth (K, note — not mK):
+  gauss    / no HP       23.1 K
+  gauss    / HP 2 mHz    31.4 K
+  airy     / no HP       25.3 K
+  airy     / HP 2 mHz    32.2 K
+  mismatch / no HP       23.9 K
+  mismatch / HP 2 mHz    30.7 K
+
+Unmodelled-sidelobe map error (mismatch − gauss, same mask & noise):
+  no HP       RMS 8.0 K    max |Δ| 23.9 K
+  HP 2 mHz    RMS 4.5 K    max |Δ| 13.3 K
+
+1. THE SIDELOBE SYSTEMATIC EXPLODES ON THE PLANE: from 0.09–0.23 K RMS
+   at b ≈ +50° (experiment 002) to 4.5–8.0 K RMS here — a factor of
+   ~35–50, with peak map errors of 13–24 K. Unmodelled −23 dB sidelobes
+   go from subdominant to a leading-order error when the rings sweep
+   through inner-plane emission. Any drift-scan survey whose strip
+   crosses (or passes near) the plane needs the true beam in the
+   operator — or must mask/excise the crossing.
+2. THE HIGH-PASS FILTER NOW HURTS, badly (23 → 31 K for gauss): the
+   plane crossing IS a large low-frequency signal, and the 2 mHz filter
+   removes tens-of-K of genuine sky. The HP-helps conclusion from 001
+   is patch-dependent — filtering strategy must adapt to sky brightness
+   along the drift (e.g. filter only off-plane segments).
+3. Overall residuals (23–32 K on a ~100–300 K sky) are poor across ALL
+   scenarios, including matched beams: fractional 1/f + white noise
+   scale with the bright sky, the prior σ = std(truth) is enormous
+   (~70 K) and so constrains little, and 3 beam-center Decs cannot
+   deconvolve the huge dynamic range. Drift-scanning across the inner
+   plane is hard even before beam systematics.
+
+
+CAVEATS
+-------
+- The mask differs slightly from 001/002 (321/276 pixels vs 317/277) —
+  same design, different LST window. Cross-experiment comparisons of
+  RMS-to-truth are indicative only; the mismatch − gauss map-error
+  metric is the robust cross-experiment quantity (same-mask, same-noise
+  by construction within each experiment).
+- The pixel-RMS is dominated by the brightest plane pixels; a per-|b| or
+  masked-plane breakdown would separate "plane pixels are hopeless" from
+  "plane leakage contaminates the off-plane strip". Not yet done — worth
+  doing before quoting these numbers.
+- Same generic caveats as 001/002: fractional noise model, strong
+  smoothed-truth prior, single channel, single realization, symmetric
+  achromatic-shape beams, no RFI/atmosphere/ground.
+
+
+REPRODUCE
+---------
+Run examples/SKA/ska_drift_galplane.ipynb top to bottom (caches:
+simulated_TODs_ska_drift_galplane_{gauss,airy}.npz,
+mapmaker_ops_ska_drift_galplane_{gauss,airy}_ns64.pkl). Seeds fixed;
+TODs bit-identical on regeneration.

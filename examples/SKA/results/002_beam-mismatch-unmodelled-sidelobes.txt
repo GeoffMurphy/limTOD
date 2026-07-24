@@ -1,0 +1,72 @@
+Experiment 002 — beam-mismatch-unmodelled-sidelobes
+Companion notes to 002_beam-mismatch-unmodelled-sidelobes.pdf
+Date: 2026-07-23 (revised same day — frame correction, see 001's notes)
+
+
+SETUP
+-----
+Identical survey, sky, noise (same per-night seeds) and map-making recipe
+as experiment 001 (see 001_short-drift-matched-beams.txt, including the
+FRAME CORRECTION note). The one change: the TOD is simulated with the
+TAPERED-APERTURE beam (real sidelobe rings, first at −23 dB) but the map
+is made with the GAUSSIAN operator and a Gaussian-smoothed prior — the
+analysis does not know the sidelobes exist. This is the realistic survey
+scenario: the true primary beam is never known perfectly, and sidelobe
+pickup in the data becomes an unmodelled systematic.
+
+The controlled comparison is mismatch vs matched-gauss: both use the same
+Gaussian operator, the same 317-pixel mask, the same prior, and (shared
+seeds) bit-identical noise realizations. The ONLY difference is whether
+the input TOD contains sidelobe pickup the operator doesn't model. The
+map-space difference between those two solves is therefore exactly the
+unmodelled-sidelobe map error.
+
+
+RESULTS
+-------
+Residual RMS vs truth:
+  mismatch / no HP       1342 mK    (matched gauss: 1300 mK)
+  mismatch / HP 2 mHz    1173 mK    (matched gauss: 1174 mK)
+  [matched airy, own 277-pixel mask: 1227 / 1091 mK]
+
+Unmodelled-sidelobe map error (mismatch − gauss, same mask & noise):
+  no HP       RMS 231 mK   max |Δ| 773 mK
+  HP 2 mHz    RMS  89 mK   max |Δ| 373 mK
+
+At b ≈ +50°, the unmodelled −23 dB sidelobes introduce a map systematic
+of ~90–230 mK RMS — real, but 6–13× below the ~1.2 K noise-dominated
+residual, and invisible in the RMS-to-truth rows (1173 vs 1174 mK with
+HP). Implication for drift-scan viability: at high galactic latitude and
+this noise level, 1/f noise — not primary-beam fidelity — is the
+limiting factor. (The high-pass filter also suppresses the sidelobe
+systematic itself by ~2.5×, since much of the sidelobe pickup enters as
+slow drifts.)
+
+
+CAVEATS
+-------
+- THIS CONCLUSION IS PATCH-SPECIFIC, and experiment 003 (galactic-plane
+  strip) demonstrates the failure directly: the same unmodelled-sidelobe
+  map error grows from ~0.1–0.2 K here to ~4.5–8 K RMS (max ~13–24 K)
+  when the strip crosses the inner plane — a factor of ~35–50. Do not
+  generalise 002's benign result beyond faint, high-latitude sky.
+- Noise-level-specific: the sidelobe systematic does not average down
+  with integration time, while the noise does. With lower 1/f or much
+  longer integration the ~90–230 mK floor re-emerges as the limit —
+  relevant, since 21cm IM signals are at mK level.
+- The tapered-aperture model is symmetric and smooth; real sidelobes are
+  asymmetric (feed legs, panel gaps) and chromatic beyond 1.22 λ/D
+  scaling. Spectral-line/IM foreground applications care precisely about
+  that chromaticity, which this single-channel test cannot probe.
+- The matched-airy reference rows sit on a different (277-pixel) mask
+  and are not row-comparable to the other scenarios.
+- Single noise realization per scenario; the map-error metric is one
+  draw (though its construction cancels the shared noise exactly, so it
+  is far more robust than the RMS-to-truth rows).
+
+
+REPRODUCE
+---------
+Same notebook run as 001 — the mismatch solve reuses the cached gauss
+operator and airy TODs, adding only seconds. The map-error metric is
+mismatch − gauss estimate maps, computed per filter setting.
