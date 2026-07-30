@@ -55,7 +55,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   TODs are split into sky / 1-f / white by replaying the seeded RNG draws
   `generate_TOD` makes, and the map is re-solved with each component switched
   off to attribute the residual. In the plane the 23 K residual is dominated by
-  the noiseless reconstruction floor (21.4 K), not 1/f (4.8 K); the 2 mHz
+  the noiseless beam + prior floor (21.4 K), not 1/f (4.8 K); the 2 mHz
   high-pass cuts the 1/f-induced error by 61% but nearly triples the
   white-noise-induced error, a 36% net regression, and no cutoff beats no
   filter at all. At b = +50° the same filter is a net win.
