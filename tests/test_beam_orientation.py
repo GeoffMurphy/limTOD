@@ -1,0 +1,178 @@
+"""Numerical pins of the beam coordinate convention (docs/theory.md).
+
+The phi-orientation of the beam map is invisible to every symmetric-beam
+test, so it is pinned here explicitly (boundary-validation policy:
+conventions are locked numerically, never trusted on paper — the retired
+conventions.pdf figure disagreed with the implementation by 90 degrees).
+
+Method: place a small Gaussian blob at (theta0, phi_b) on the beam map,
+push it through the full pointing chain (``pointing_beam_in_eq_sys``),
+and compare the landing direction against the exact expectation
+
+    v_expect = cos(theta0) * b_hat + sin(theta0) * t_hat,
+    t_hat    = cos(phi_b + psi) * e_el + sin(phi_b + psi) * e_az,
+
+where e_el = d(b_hat)/d(el) is the increasing-elevation tangent and
+e_az the increasing-azimuth tangent (docs/theory.md). The site is at
+(lat = 0, LST = 0) so the horizontal->equatorial part is trivial:
+zenith = (RA 0, Dec 0), North horizon = NCP, East point = (RA 90, Dec 0).
+"""
+
+import healpy as hp
+import numpy as np
+import pytest
+
+from limTOD.simulator import pointing_beam_in_eq_sys
+
+NSIDE = 64
+LMAX = 3 * NSIDE - 1
+THETA0 = np.deg2rad(10.0)
+SIGMA = np.deg2rad(2.0)
+# argmax on the HEALPix grid quantizes at the pixel scale (~0.9 deg).
+TOL_DEG = 1.5
+
+# Equatorial unit vectors of the lat=0, LST=0 reference directions.
+NCP = np.array([0.0, 0.0, 1.0])                  # North horizon point
+ZENITH = np.array([1.0, 0.0, 0.0])               # (RA 0, Dec 0)
+EAST = np.array([0.0, 1.0, 0.0])                 # (RA 90, Dec 0)
+
+
+def _blob_map(phi_b_deg: float) -> np.ndarray:
+    vec0 = np.asarray(hp.ang2vec(THETA0, np.deg2rad(phi_b_deg))).ravel()
+    theta, phi = hp.pix2ang(NSIDE, np.arange(hp.nside2npix(NSIDE)))
+    vecs = np.asarray(hp.ang2vec(theta, phi))
+    ang = np.arccos(np.clip(vecs @ vec0, -1.0, 1.0))
+    return np.exp(-0.5 * (ang / SIGMA) ** 2)
+
+
+def _landing_vec(phi_b_deg: float, az: float, el: float, selfrot: float = 0.0) -> np.ndarray:
+    alm = hp.map2alm(_blob_map(phi_b_deg), lmax=LMAX)
+    out = pointing_beam_in_eq_sys(
+        alm, LST_deg=0.0, lat_deg=0.0, azimuth_deg=az, elevation_deg=el,
+        selfrot_deg=selfrot, nside=NSIDE, normalize=False,
+    )
+    return np.asarray(hp.pix2vec(NSIDE, int(np.argmax(out))))
+
+
+def _expected_vec(b_hat, e_el, e_az, phi_b_deg: float, psi_deg: float = 0.0):
+    ang = np.deg2rad(phi_b_deg + psi_deg)
+    t_hat = np.cos(ang) * e_el + np.sin(ang) * e_az
+    return np.cos(THETA0) * b_hat + np.sin(THETA0) * t_hat
+
+
+def _sep_deg(u, v) -> float:
+    return float(np.rad2deg(np.arccos(np.clip(np.dot(u, v), -1.0, 1.0))))
+
+
+@pytest.mark.integration
+class TestBeamOrientation:
+    """phi=0 -> e_el, phi=90 -> e_az, at two independent pointings."""
+
+    # Pointing az=0 (North horizon): b = NCP, e_el = ZENITH, e_az = EAST.
+    @pytest.mark.parametrize("phi_b", [0.0, 90.0, 180.0, 270.0])
+    def test_identity_pointing_reads_map_as_equatorial(self, phi_b):
+        """lat=0, LST=0, az=0, el=0 is the identity of the chain: the map
+        IS the equatorial map (pole -> NCP, phi = RA)."""
+        got = _landing_vec(phi_b, az=0.0, el=0.0)
+        expected = _expected_vec(NCP, ZENITH, EAST, phi_b)
+        assert _sep_deg(got, expected) < TOL_DEG
+
+    # Pointing az=90 (East horizon): b = EAST point, e_el = ZENITH,
+    # e_az (increasing azimuth) = the horizon great-circle direction from
+    # (RA 90, Dec 0) toward the SCP.
+    @pytest.mark.parametrize("phi_b", [0.0, 90.0, 270.0])
+    def test_east_pointing_e_el_and_e_az(self, phi_b):
+        got = _landing_vec(phi_b, az=90.0, el=0.0)
+        e_az = np.array([0.0, 0.0, -1.0])  # toward the SCP
+        expected = _expected_vec(EAST, ZENITH, e_az, phi_b)
+        assert _sep_deg(got, expected) < TOL_DEG
+
+    def test_selfrot_rotates_e_el_toward_e_az(self):
+        """Positive selfrot carries the phi = 0 feature toward phi = +90
+        (from e_el toward e_az), by the selfrot angle."""
+        got = _landing_vec(0.0, az=0.0, el=0.0, selfrot=30.0)
+        expected = _expected_vec(NCP, ZENITH, EAST, 0.0, psi_deg=30.0)
+        assert _sep_deg(got, expected) < TOL_DEG
+        # And the mirror sense must be wrong by ~2*psi*sin(theta0).
+        mirror = _expected_vec(NCP, ZENITH, EAST, 0.0, psi_deg=-30.0)
+        assert _sep_deg(got, mirror) > 4.0 * TOL_DEG
+
+    # Azimuth convention: measured from North, increasing towards East
+    # (N=0, E=90, S=180, W=270). A boresight-centred blob pointed at
+    # (az, el=0) must land on the corresponding horizon compass point;
+    # a west-of-north convention would land az=90 on the West point.
+    @pytest.mark.parametrize(
+        "az, compass_point",
+        [(0.0, NCP),                              # North point
+         (90.0, EAST),                            # East point
+         (180.0, np.array([0.0, 0.0, -1.0])),     # South point (SCP)
+         (270.0, np.array([0.0, -1.0, 0.0]))],    # West point
+    )
+    def test_azimuth_measured_from_north_towards_east(self, az, compass_point):
+        theta, _ = hp.pix2ang(NSIDE, np.arange(hp.nside2npix(NSIDE)))
+        alm = hp.map2alm(np.exp(-0.5 * (theta / SIGMA) ** 2), lmax=LMAX)
+        out = pointing_beam_in_eq_sys(
+            alm, LST_deg=0.0, lat_deg=0.0, azimuth_deg=az, elevation_deg=0.0,
+            selfrot_deg=0.0, nside=NSIDE, normalize=False,
+        )
+        got = np.asarray(hp.pix2vec(NSIDE, int(np.argmax(out))))
+        assert _sep_deg(got, compass_point) < TOL_DEG
+
+    # Parked configuration (az=0, el=90): the beam axes must land on
+    # (south point, east point, zenith) — the alt-az Cartesian triad.
+    # At lat=0, LST=0: zenith = (RA 0, Dec 0), south point = SCP.
+    @pytest.mark.parametrize(
+        "phi_b, t_hat",
+        [(0.0, np.array([0.0, 0.0, -1.0])),   # e_el(A=0, e=90) = south point
+         (90.0, EAST)],                        # e_az(A=0) = east point
+    )
+    def test_parked_axes_land_on_south_east_zenith(self, phi_b, t_hat):
+        got = _landing_vec(phi_b, az=0.0, el=90.0)
+        expected = np.cos(THETA0) * ZENITH + np.sin(THETA0) * t_hat
+        assert _sep_deg(got, expected) < TOL_DEG
+
+    # The identity has a second, more intuitive reading: an antenna at the
+    # terrestrial North Pole looking at its zenith. At el=90 the boresight is
+    # the zenith whatever the azimuth, so azimuth only ROLLS the beam about
+    # the boresight — and the roll that leaves the map alone is A=0, NOT the
+    # A=180 that "phi=0 points south" tempts one to answer.
+    @pytest.mark.parametrize("az,is_identity", [(0.0, True), (90.0, False),
+                                               (180.0, False), (270.0, False)])
+    def test_north_pole_zenith_identity_is_azimuth_zero(self, az, is_identity):
+        alm = hp.map2alm(_blob_map(35.0), lmax=LMAX)
+        unrotated = hp.alm2map(alm, NSIDE)
+        rotated = pointing_beam_in_eq_sys(
+            alm, LST_deg=0.0, lat_deg=90.0, azimuth_deg=az, elevation_deg=90.0,
+            selfrot_deg=0.0, nside=NSIDE, normalize=False,
+            # the default 1e-10 truncation is a nonlinear cleanup applied to the
+            # ROTATED map only; comparing maps (not argmax) needs it off
+            truncate_frac_thres=0.0,
+        )
+        rel = float(np.max(np.abs(rotated - unrotated)) / unrotated.max())
+        if is_identity:
+            assert rel < 1e-6, f"azimuth {az} should be the identity, rel {rel:.2e}"
+        else:
+            assert rel > 1e-2, f"azimuth {az} must NOT be the identity, rel {rel:.2e}"
+
+    @pytest.mark.parametrize("lst,selfrot", [(0.0, 0.0), (30.0, 0.0),
+                                             (0.0, 25.0), (137.5, -40.0)])
+    def test_north_pole_zenith_identity_general_rule(self, lst, selfrot):
+        """At lat=90, el=90 the chain collapses to Rz(selfrot - A + LST), so
+        the identity is the one-parameter family A = LST + selfrot — not a
+        coincidence of LST = 0."""
+        alm = hp.map2alm(_blob_map(35.0), lmax=LMAX)
+        unrotated = hp.alm2map(alm, NSIDE)
+        rotated = pointing_beam_in_eq_sys(
+            alm, LST_deg=lst, lat_deg=90.0, azimuth_deg=(lst + selfrot) % 360.0,
+            elevation_deg=90.0, selfrot_deg=selfrot, nside=NSIDE, normalize=False,
+            truncate_frac_thres=0.0,
+        )
+        rel = float(np.max(np.abs(rotated - unrotated)) / unrotated.max())
+        assert rel < 1e-6, f"LST={lst}, selfrot={selfrot}: rel {rel:.2e}"
+
+    def test_mirror_convention_rejected(self):
+        """phi = 90 landing along -e_az (the mirrored convention) must be
+        far off — this is the case a symmetric beam can never detect."""
+        got = _landing_vec(90.0, az=0.0, el=0.0)
+        mirrored = _expected_vec(NCP, ZENITH, -EAST, 90.0)
+        assert _sep_deg(got, mirrored) > 10.0 * TOL_DEG

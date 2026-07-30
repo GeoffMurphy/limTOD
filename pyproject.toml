@@ -1,27 +1,29 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=77.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "limTOD"
-version = "1.1.0"
+version = "1.8.0"
 authors = [
     {name = "Zheng Zhang", email = "zheng.zhang@manchester.ac.uk"},
 ]
-description = "Time-Ordered Data Simulator for MeerKLASS"
+description = "Time-Ordered Data simulator for single-dish radio intensity mapping, with a differentiable JAX port (limtod_jax)"
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.8"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Astronomy",
     "Topic :: Scientific/Engineering :: Physics",
 ]
@@ -35,18 +37,53 @@ keywords = [
     "noise modeling",
     "map making"
 ]
+# Base dependencies are kept to wheel-installable packages only. Heavy or
+# toolchain-dependent dependencies live in extras (see below): mpi4py needs a
+# system MPI compiler ([mpi]); pygdsm pulls extra packages and downloads sky
+# data ([gdsm]). Without them limTOD runs serially and every feature except
+# GDSM_sky_model works unchanged.
 dependencies = [
     "numpy>=1.19.0",
     "healpy>=1.14.0",
     "astropy>=4.0.0",
     "scipy>=1.5.0",
     "tqdm>=4.60.0",
-    "mpi4py>=3.0.0",
-    "pygdsm>=1.2.0",
     "mpmath>=1.2.0",
 ]
 
 [project.optional-dependencies]
+# MPI-parallel runs (mpirun/mpiexec); without it limTOD.mpiutil falls back to
+# serial mode (rank=0, size=1).
+mpi = [
+    "mpi4py>=3.0.0",
+]
+# The Global Sky Model used by limTOD.sky_model.GDSM_sky_model (lazy import).
+gdsm = [
+    "pygdsm>=1.2.0",
+]
+# pyuvdata UVBeam support (limTOD.uvbeam): beam_func adapters for TODSim
+# and the limTOD.patchbeam patch-beam path. Current pyuvdata releases require
+# Python >= 3.11; the base package stays >= 3.8.
+uvbeam = [
+    "pyuvdata>=3.0",
+]
+# Parallel sample loop in limTOD.patchbeam (n_jobs != 1); the serial default
+# needs nothing extra.
+parallel = [
+    "joblib>=1.2",
+]
+# Everything. Deps are enumerated directly rather than as self-referential
+# "limTOD[...]" extras, which would make pip resolve "limTOD" against the
+# index (pinning whatever is published there instead of this source tree).
+full = [
+    "mpi4py>=3.0.0",
+    "pygdsm>=1.2.0",
+    "jax>=0.5",
+    "s2fft>=1.4.0",
+    "equinox>=0.13",
+    "pyuvdata>=3.0",
+    "joblib>=1.2",
+]
 dev = [
     "pytest>=6.0",
     "pytest-cov>=2.0",
@@ -58,29 +95,40 @@ dev = [
     "jupyter>=1.0",
     "matplotlib>=3.3.0",
 ]
+# Sphinx toolchain for docs/ (ReadTheDocs uses this extra; see
+# .readthedocs.yaml, which additionally installs [jax] so the limtod_jax
+# API pages render real signatures).
 docs = [
-    "sphinx>=4.0",
-    "sphinx-rtd-theme>=1.0",
-    "jupyter>=1.0",
-    "matplotlib>=3.3.0",
+    "sphinx>=7.0",
+    "myst-parser>=2.0",
+    "sphinx-rtd-theme>=2.0",
 ]
 notebooks = [
     "jupyter>=1.0",
     "matplotlib>=3.3.0",
     "seaborn>=0.11.0",
 ]
+# The jax extra requires Python >= 3.11 (s2fft floor); the base package stays >= 3.8.
+jax = [
+    "jax>=0.5",
+    "s2fft>=1.4.0",
+    "equinox>=0.13",
+]
 
 [project.urls]
 Homepage = "https://github.com/zzhang0123/limTOD"
+Documentation = "https://limtod.readthedocs.io"
+Changelog = "https://github.com/zzhang0123/limTOD/blob/main/CHANGELOG.md"
 "Bug Reports" = "https://github.com/zzhang0123/limTOD/issues"
 "Source Code" = "https://github.com/zzhang0123/limTOD"
 
-[tool.setuptools]
-include-package-data = true
-
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["limTOD*"]
+include = ["limTOD*", "limtod_jax*"]
 
-[tool.setuptools.package-data]
-limTOD = ["data/*", "examples/*"]
+[tool.pytest.ini_options]
+markers = [
+    "unit: fast in-memory unit tests",
+    "integration: tests that exercise multiple modules together",
+    "slow: tests that load large external data files",
+]

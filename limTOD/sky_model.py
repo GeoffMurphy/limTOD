@@ -1,10 +1,21 @@
-from pygdsm import GlobalSkyModel16 as GlobalSkyModel
+from typing import Callable, Optional
 
 import healpy as hp
 import numpy as np
 
 
-def GDSM_sky_model(*, freq, nside):
+def GDSM_sky_model(*, freq: float, nside: int) -> np.ndarray:
+    """Global Sky Model (GSM16) map at `freq` [MHz], regridded to `nside`."""
+    # pygdsm is an OPTIONAL dependency (it pulls extra packages and downloads
+    # sky-model data on first use), imported lazily so that `import limTOD`
+    # works without it. Install with: pip install "limTOD[gdsm]".
+    try:
+        from pygdsm import GlobalSkyModel16 as GlobalSkyModel
+    except ImportError as exc:
+        raise ImportError(
+            "GDSM_sky_model requires the optional pygdsm package; "
+            'install it with: pip install "limTOD[gdsm]"'
+        ) from exc
     gsm = GlobalSkyModel()
     skymap = gsm.generate(freq)
     skymap = hp.ud_grade(skymap, nside_out=nside)
@@ -14,19 +25,19 @@ def GDSM_sky_model(*, freq, nside):
 # Example script to generate Gaussian random fields with a given covariance
 # Credits: Katrine Alice Glasscock, Philip Bull
 def generate_gaussian_field(
-    freqs,
-    nside,
-    amp,
-    alpha=1.0,
-    beta=1.0,
-    xi=1.0,
-    f_ell=None,
-    nu_ref=300.0,
-    ell_ref=100.0,
-    fwhm=0.0,
-    seed=None,
-    min_eigval=1e-10,
-):
+    freqs: np.ndarray,
+    nside: int,
+    amp: float,
+    alpha: float = 1.0,
+    beta: float = 1.0,
+    xi: float = 1.0,
+    f_ell: Optional[Callable[[np.ndarray], np.ndarray]] = None,
+    nu_ref: float = 300.0,
+    ell_ref: float = 100.0,
+    fwhm: float = 0.0,
+    seed: Optional[int] = None,
+    min_eigval: float = 1e-10,
+) -> np.ndarray:
     """
     Generate a random realisation of a Gaussian field as a series of correlated
     Healpix maps. The field is drawn from a covariance matrix model of the form:
@@ -38,7 +49,8 @@ def generate_gaussian_field(
     has zero mean (on average) by default. See Alonso et al. (2014) [1405.1751],
     Sect. 4.1, for the algorithm used.
 
-    Parameters:
+    Parameters
+    ----------
         freqs (array_like):
             Frequencies at which to generate maps, in MHz.
         nside (int):
@@ -66,17 +78,24 @@ def generate_gaussian_field(
             The  minimum eigenvalue to tolerate from the freq.-freq. part of the
             covariance matrix. Modes with eigenvalues lower than this are ignored.
 
-    Returns:
+    Returns
+    -------
         maps (array_like):
             Array of Healpix maps, of shape `(Nfreqs, Npix)`.
     """
-    # Set random seed
-    np.random.seed(seed)
+    # Seed only when explicitly requested: np.random.seed(None) would RESEED
+    # the global RNG from OS entropy, clobbering any reproducibility seeding
+    # the caller has already done.
+    if seed is not None:
+        np.random.seed(seed)
 
     # Set f_ell function
     if f_ell is None:
-        f_ell = lambda ell: (ell / ell_ref) ** alpha
-    assert callable(f_ell), "f_ell must be a callable function of ell"
+        def f_ell(ell: np.ndarray) -> np.ndarray:
+            return (ell / ell_ref) ** alpha
+
+    if not callable(f_ell):
+        raise TypeError("f_ell must be a callable function of ell")
 
     # Set of ell values and ell-dependent covariance factor
     ell_max = 3 * nside - 1  # This is the correct value for a band-limited field

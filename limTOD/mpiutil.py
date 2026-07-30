@@ -2,17 +2,23 @@
 This module is adapted from https://github.com/radiocosmology/caput/blob/master/caput/mpiutil.py
 """
 
-import numpy as np
 import logging
-
-# Add near the top with other CPU affinity code
 import os
+from typing import TYPE_CHECKING, Any, Callable, List, Optional, Sequence, Tuple
 
-rank = 0
-size = 1
-_comm = None
-world = None
-rank0 = True
+import numpy as np
+
+if TYPE_CHECKING:
+    from mpi4py.MPI import Comm
+
+rank: int = 0
+size: int = 1
+_comm: Optional["Comm"] = None
+# `world` is accessed unguarded (e.g. `mpiutil.world.bcast(...)`) inside
+# `size > 1` blocks that mypy cannot connect to non-None-ness, so it is
+# typed Any rather than Optional["Comm"].
+world: Any = None
+rank0: bool = True
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +29,7 @@ logger = logging.getLogger(__name__)
 _mpi_initialized = False
 
 
-def init_mpi():
+def init_mpi() -> None:
     """Initialize MPI once at module import"""
     global _mpi_initialized
     if not _mpi_initialized:
@@ -34,28 +40,75 @@ def init_mpi():
         _mpi_initialized = True
 
 
-# Initialize MPI when module is imported
-init_mpi()
+# Environment variables set by common MPI launchers (mpirun/mpiexec/srun),
+# used to detect the "launched under MPI but mpi4py missing" misconfiguration.
+_MPI_LAUNCHER_SIZE_VARS = (
+    "OMPI_COMM_WORLD_SIZE",  # Open MPI
+    "PMI_SIZE",              # MPICH / Intel MPI (Hydra)
+    "MV2_COMM_WORLD_SIZE",   # MVAPICH2
+    "SLURM_NTASKS",          # Slurm srun
+)
 
-from mpi4py import MPI
 
-_comm = MPI.COMM_WORLD
-world = _comm
-rank = _comm.Get_rank()
-size = _comm.Get_size()
+def _detect_mpi_launcher() -> Optional[str]:
+    """Return "VAR=value" if an MPI launcher with >1 tasks is detected, else None."""
+    for var in _MPI_LAUNCHER_SIZE_VARS:
+        value = os.environ.get(var)
+        if value is None:
+            continue
+        try:
+            n_tasks = int(value)
+        except ValueError:
+            continue
+        if n_tasks > 1:
+            return f"{var}={value}"
+    return None
 
-if _comm is not None and size > 1:
-    logger.debug("Starting MPI rank=%i [size=%i]", rank, size)
+
+# mpi4py is an OPTIONAL dependency (install with: pip install "limTOD[mpi]").
+# Without it, every function in this module degrades to serial mode
+# (rank=0, size=1, world=None) — the same fallback the upstream caput
+# mpiutil this file is adapted from provides. All consumers already guard
+# on `size == 1` / `comm is None`, so serial behavior is unchanged.
+try:
+    # Initialize MPI when module is imported
+    init_mpi()
+    from mpi4py import MPI
+
+    _comm = MPI.COMM_WORLD
+    world = _comm
+    rank = _comm.Get_rank()
+    size = _comm.Get_size()
+
+    if _comm is not None and size > 1:
+        logger.debug("Starting MPI rank=%i [size=%i]", rank, size)
+except ImportError:
+    # Guard against the silent-duplication trap: under `mpirun -n N` without
+    # mpi4py, every process would believe it is rank 0 of 1 and run the FULL
+    # workload — N-fold duplicated compute, and rank-0-gated file writes
+    # would collide. Fail loudly instead (escape hatch: LIMTOD_FORCE_SERIAL=1).
+    _launcher = _detect_mpi_launcher()
+    if _launcher is not None and os.environ.get("LIMTOD_FORCE_SERIAL") != "1":
+        raise RuntimeError(
+            f"An MPI launcher is detected ({_launcher}) but mpi4py is not "
+            "installed, so every process would silently run the whole "
+            "workload in serial mode. Install the MPI extra "
+            '(pip install "limTOD[mpi]") or, if running N independent serial '
+            "copies is intentional, set LIMTOD_FORCE_SERIAL=1."
+        ) from None
+    logger.debug("mpi4py not found — running in serial mode (size=1)")
 
 rank0 = rank == 0
 
 
-def partition_list(full_list, i, n, method="con"):
+def partition_list(
+    full_list: Sequence[Any], i: int, n: int, method: str = "con"
+) -> Sequence[Any]:
     """
     Partition a list into `n` pieces. Return the `i`th partition.
     """
 
-    def _partition(N, n, i):
+    def _partition(N: int, n: int, i: int) -> Tuple[int, int]:
         # If partiion `N` numbers into `n` pieces,
         # return the start and stop of the `i` th piece
         base = N // n
@@ -79,20 +132,30 @@ def partition_list(full_list, i, n, method="con"):
         raise ValueError("Unknown partition method %s" % method)
 
 
-def partition_list_mpi(full_list, method="con", comm=_comm):
+def partition_list_mpi(
+    full_list: Sequence[Any], method: str = "con", comm: Optional["Comm"] = _comm
+) -> Sequence[Any]:
     """
     Return the partition of a list specific to the current MPI process.
     """
+    # Distinct local names: assigning to `rank`/`size` here would shadow the
+    # module-level serial defaults and leave them unbound when comm is None.
     if comm is not None:
-        rank = comm.rank
-        size = comm.size
+        proc_rank, proc_size = comm.rank, comm.size
+    else:
+        proc_rank, proc_size = rank, size
 
-    return partition_list(full_list, rank, size, method=method)
+    return partition_list(full_list, proc_rank, proc_size, method=method)
 
 
 def parallel_map_gather(
-    func, glist, multi_inputs=False, root=None, method="con", comm=_comm
-):
+    func: Callable[..., Any],
+    glist: Sequence[Any],
+    multi_inputs: bool = False,
+    root: Optional[int] = None,
+    method: str = "con",
+    comm: Optional["Comm"] = _comm,
+) -> Optional[List[Any]]:
     """
     Apply a parallel map using MPI.
     Should be called collectively on the same list. All ranks return the full
@@ -163,7 +226,12 @@ def parallel_map_gather(
         return None
 
 
-def parallel_jobs_no_gather_no_return(func, glist, method="con", comm=_comm):
+def parallel_jobs_no_gather_no_return(
+    func: Callable[..., Any],
+    glist: Sequence[Any],
+    method: str = "con",
+    comm: Optional["Comm"] = _comm,
+) -> Optional[List[Any]]:
     """
     Apply a parallel map using MPI.
     Should be called collectively on the same list. All ranks return the full
@@ -205,7 +273,7 @@ def parallel_jobs_no_gather_no_return(func, glist, method="con", comm=_comm):
     return None
 
 
-def barrier(comm=_comm):
+def barrier(comm: Optional["Comm"] = _comm) -> None:
     """
     Synchronize all MPI processes.
     """
