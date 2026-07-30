@@ -167,6 +167,60 @@ def drift_scan_night(duration_s, dt=2.0, night=0, azimuth_deg=0.0):
     return t_list, az_list
 
 
+def constant_elevation_scan(duration_s, az_centre_deg, az_halfwidth_deg,
+                            sweep_s, dt=2.0, t0_s=0.0):
+    """Time/azimuth lists for a MeerKLASS-style constant-elevation raster.
+
+    The dish sweeps back and forth in azimuth at fixed elevation while the sky
+    drifts through underneath, so each pixel is crossed on both the forward and
+    the backward sweep.
+
+    This is the one thing ``drift_scan_night`` cannot do. A *parked* dish is
+    fixed in the rotating Earth frame, so in the celestial frame its boresight
+    traces a circle about the pole — a line of constant Dec, always swept in
+    +RA at the sidereal rate. Azimuth only chooses *which* Dec; the direction
+    the sky moves through the beam is due east at every azimuth, so a drift
+    scan has exactly one scan direction and cannot cross-link. Slewing in
+    azimuth breaks that: the track's position angle depends on the pointing,
+    so a pass east of the meridian and a mirrored pass west of it cross on the
+    sky (~75 deg apart for the geometry used in
+    ``ska_meerklass_scan.ipynb``).
+
+    Parameters
+    ----------
+    duration_s : float
+        Length of the pass in seconds.
+    az_centre_deg, az_halfwidth_deg : float
+        Azimuth throw: the sweep runs over
+        ``az_centre_deg -/+ az_halfwidth_deg``.
+    sweep_s : float
+        Seconds for one half-sweep (one traverse of the full throw), so the
+        scan rate is ``2 * az_halfwidth_deg / sweep_s`` deg/s.
+    dt : float, optional
+        Sample spacing in seconds.
+    t0_s : float, optional
+        Offset of this pass from the survey's single ``start_time_utc``.
+
+    Returns
+    -------
+    time_list : (ntime,) array
+        Offsets in seconds from the survey's ``start_time_utc``.
+    azimuth_deg_list : (ntime,) array
+        Triangle-wave azimuth.
+    going_out : (ntime,) bool array
+        True on forward sweeps, False on the return — the two sweep directions
+        land at slightly different position angles, so this is handy for
+        splitting the TOD by scan direction.
+    """
+    ntime = int(round(duration_s / dt))
+    t_list = t0_s + np.arange(ntime) * dt
+    phase = ((t_list - t0_s) % (2.0 * sweep_s)) / sweep_s   # 0..2
+    going_out = phase <= 1.0
+    tri = np.where(going_out, phase, 2.0 - phase)           # 0..1..0
+    az_list = az_centre_deg - az_halfwidth_deg + 2.0 * az_halfwidth_deg * tri
+    return t_list, az_list, going_out
+
+
 def save_results_pdf(number, slug, description, image_paths,
                      rms_table=None, out_dir="results"):
     """Archive one experiment's results as a numbered PDF.
