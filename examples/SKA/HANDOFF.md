@@ -156,6 +156,37 @@ enlarges the patch and reintroduces the depth dilution.
 
 ---
 
+## Off-plane raster (added 2026-07-31)
+
+Experiment 004's raster existed only on the plane. `ska_results_summary.ipynb`
+now simulates an **off-plane counterpart** — same site, frequency, Gaussian
+beam, sky, noise model, seeds, 3 h and recipe as the off-plane drift; only the
+pass start times shift, by the −8.574 sidereal hours between the two fields'
+RA. Caches: `simulated_TODs_ska_meerklass_offplane_gauss.npz` and
+`mapmaker_ops_ska_meerklass_offplane_gauss_ns64.pkl`. Gauss only — the
+tapered-aperture beam matters for the sidelobe question, which is a bright-field
+result.
+
+Geometry check: both passes centre on RA ≈ 157.9° against the drift patch's
+158.30°; track position angles 126.6° and 52.7°, a **73.9° crossing** (the plane
+version was ~75°). Raster selects 684 px to the drift's 317, so it is 2.16×
+shallower at fixed clock time.
+
+| off-plane, no HP, gauss | per-pixel | beam-scale |
+|---|---|---|
+| drift floor → raster floor | 1.287 → 1.158 K (**−10.0%**) | 0.300 → 0.187 K (**−37.8%**) |
+| drift total → raster total @ matched depth | 1.300 → 1.241 K (−4.5%) | 0.313 → 0.175 K (**−44.0%**) |
+
+**Cross-linking is worth ~40% off-plane at beam scale, but only ~10% per
+pixel.** The per-pixel number is diluted by sub-beam structure *neither*
+strategy measures, which is why beam-scale is the fair comparison — and why the
+plane's headline −26.5% floor gain (per-pixel) understated the effect.
+
+Note the residuals carry a positive monopole (drift +0.754 K, raster +0.542 K
+off-plane). All quoted numbers are `np.std`, so it does not enter them.
+
+---
+
 ## Queued next
 
 0. **Raise the number of measured modes** — this is now the headline lever,
