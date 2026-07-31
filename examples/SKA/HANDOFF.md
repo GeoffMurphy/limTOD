@@ -6,38 +6,66 @@ site, GDSM sky, nside 64 maps.
 
 ---
 
-## TOP PRIORITY TOMORROW
+## RESOLVED 2026-07-31: the nside 16 re-run was the wrong call — keep nside 64
 
-**Re-run everything at beam-matched resolution (nside 16).** This is not a
-nice-to-have — it is the thing standing between these results and a real
-feasibility number.
+The 2026-07-30 handoff made "re-run at beam-matched nside 16" the top priority,
+on the grounds that nside 64 under a 3.99° beam is 21.5× overparameterised.
+**That recommendation was wrong and has been withdrawn.** nside 64 is the
+correct grid. Nothing in the results below needs retracting.
 
-The map is solved at nside 64 (0.92° pixels) under a 3.99° beam, so the
-inversion is **21.5× overparameterised** (= beam solid angle 18.04 deg² / pixel
-area 0.839 deg²). It is effectively deconvolving, which inflates *both* error
-terms by ~2 orders of magnitude:
+Three independent lines all point the same way:
 
-| | pixels | samples/px | radiometer limit | measured white term | inflation |
-|---|---|---|---|---|---|
-| drift | 321 | 16.8 | 81 mK | 7277 mK | **90×** |
-| scan | 681 | 7.9 | 117 mK | 15977 mK | **136×** |
+1. **Sampling rule of thumb (~3 pixels across the FWHM).** Pixel size vs the
+   3.99° beam: nside 16 → 1.1 px/FWHM, nside 32 → 2.2, nside 64 → **4.4**.
+   Coarsening *undersamples* the beam and throws away real information. The
+   earlier argument conflated sampling with conditioning; degenerate sub-beam
+   modes are the Wiener prior's job, and it was already doing it.
+2. **Band-limiting.** A 3.99° Gaussian retains 37% amplitude at nside 16's band
+   edge (lmax 47) but only 1.8% at nside 32's (lmax 95). nside 16 cannot
+   represent this beam at all.
+3. **Measured residuals.** Coarser is monotonically worse — the drift's
+   noiseless floor goes 21.4 K (ns64) → 70.0 K (ns32, native beam) →
+   84.7 K (ns16). At nside 32 the high-pass verdict even flips sign, which is
+   how you can tell the coarse grids are unreliable rather than merely blunt.
 
-At nside 16 the patch holds ~20 pixels with ~269 samples each, a 20 mK
-radiometer limit, and only **1.3×** overparameterisation — a well-posed solve.
+### Why the residual is large — the real answer
 
-Two things to watch:
+Not overparameterisation. Eigen-analysis of `AᵀN⁻¹A` (no prior) gives, **and
+this is identical at nside 32 and nside 64**:
 
-1. The overparameterisation factor is identical (21.5×) for both strategies —
-   it depends only on nside and beam — but the *consequence* is not: the scan
-   is penalised ~1.5× harder (136× vs 90×). Beam-matching should therefore
-   favour the scan, if anything.
-2. **The relative conclusions may not survive.** Cross-linking helps largely by
-   conditioning an ill-posed inversion. Make the inversion well-posed and its
-   benefit may shrink. This is untested and is the main risk to the headline
-   result below.
+| | effective modes (Σλ/λmax) | modes > 1% of λmax | pixels solved |
+|---|---|---|---|
+| drift | 3.9 | **17** | 321 |
+| scan | 5.5 | **34** | 681 |
 
-Absolute temperatures from any run so far must **not** be quoted as achievable
-map error. Quote percentages. This caveat has already gone out on Slack.
+The strategy — not the pixelisation — sets how much sky is measurable. The
+drift constrains ~17 independent modes over that patch however finely you
+pixelate; the rest of the map is prior. So "Tsys/√(samples per pixel)" was
+never the right benchmark: it assumes every pixel is independently measured and
+overstates the information by ~19×. Coarsening to nside 16 would still have
+measured 17 modes — the grid was never the problem.
+
+This also gives a clean, grid-independent statement of why cross-linking helps:
+**it doubles the number of measured modes** (17 → 34).
+
+### How to quote residuals
+
+Absolute temperatures are meaningful, but state the metric. Per-pixel RMS
+against unsmoothed truth is legitimate but pessimistic — 75–82% of it lives in
+sub-beam modes the data never constrained. Averaged onto beam-sized cells
+(nside 16 cells fully inside the patch):
+
+| no HP, gauss | per-pixel | beam-scale |
+|---|---|---|
+| drift total | 23.1 K | **5.7 K** |
+| drift floor | 21.4 K | 5.1 K |
+| scan total | 26.8 K | **4.4 K** |
+| scan floor | 17.0 K | 3.7 K |
+
+The Slack caveat that absolute temperatures are meaningless was too strong, and
+the "deconvolution issue we'll fix tomorrow" framing was wrong — coarsening the
+grid does not fix it because there was nothing to fix. The honest correction is
+the mode-count argument above.
 
 ---
 
@@ -128,13 +156,38 @@ enlarges the patch and reintroduces the depth dilution.
 
 ---
 
-## Queued after the nside 16 re-run
+## Queued next
 
+0. **Raise the number of measured modes** — this is now the headline lever,
+   replacing the nside re-run. The drift measures 17, the scan 34; everything
+   else is prior. More crossing angles and more elevations both add modes,
+   whereas more integration time on the same tracks does not.
 1. **Depth-matched raster done properly** — narrow the azimuth throw so the scan
    natively selects ~321 px, instead of the analytic noise scaling used above.
 2. **More crossing angles** — currently only two (~75° apart). More elevations
-   or azimuths should push the floor below 15.7 K.
-3. Report to the limTOD author: `GDSM_sky_model` still returns the unrotated
+   or azimuths should push the floor below 15.7 K. Track the mode count as the
+   figure of merit, not just the residual.
+3. **Report to the limTOD author (new, 2026-07-31): `HPW_mapmaking` produces a
+   silently wrong operator whenever `nside_target != nside_beam`.**
+   `HPW_filter.py:449` (and the `num_tods == 1` branch at :470) hardcodes
+   `normalize_beam=False`, and `generate_sky2sys_projection` then synthesises
+   the beam alm — built at `nside_beam` — straight onto the `nside_target`
+   grid. Sum-normalisation is an nside-dependent convention, so every operator
+   row is scaled by `(nside_target/nside_beam)²`. Measured row sums with an
+   nside-64 beam: **0.0631 at nside_target 16, 0.2525 at 32, 1.0096 at 64** —
+   i.e. exactly 1/16, 1/4, 1. The map-maker then scales the sky up to
+   compensate, giving nonsense (drift floor 1921 K at nside 16 vs 21 K at 64).
+   Multiplying the operator by `(nside_beam/nside_target)²` restores every grid
+   to the same 1.0096, confirming the diagnosis.
+   Note `TODSim.generate_TOD` also defaults to `normalize_beam=False`, so
+   simulation and map-making agree *only* when the nsides match — which is why
+   our own 64/64 runs are unaffected. Suggested fix: normalise per pointing, or
+   scale by the nside ratio, or refuse `nside_target != nside_beam`.
+   Also worth telling the author that a *natively* built coarse beam is still
+   not a workaround: at nside 32 (2.2 px/FWHM) per-pointing beam shape error
+   inflates the floor 3× and flips the high-pass verdict, and a scalar gain
+   correction does not remove it (0.90–1.02 sweep moves the floor <2%).
+4. Report to the limTOD author: `GDSM_sky_model` still returns the unrotated
    galactic-frame map in 1.8.0 (so `ska_common.gdsm_equatorial_sky_model`
    remains necessary; note upstream also switched to GSM16 while ours uses
    GSM08, so adopting a fixed upstream version would change the sky model and
