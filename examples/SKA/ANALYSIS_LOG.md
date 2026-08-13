@@ -149,7 +149,8 @@ series currently supports.
 
 ### Queued, in the order I would do them
 
-**1. Audit the cross-linking headline against a flat prior.** The previous entry
+**1. Audit the cross-linking headline against a flat prior.** — **done, see the
+next entry.** The previous entry
 established that the truth-derived prior did the work in the frequency trend,
 and `HANDOFF.md` notes every residual in the file uses that prior — including
 the −26.5% floor and −44% beam-scale cross-linking gains. The argument that
@@ -191,3 +192,76 @@ not yet claimed.
 Also outstanding from `HANDOFF.md`: the 700 MHz grid check, the properly
 depth-matched raster, more crossing angles, and the two limTOD author reports
 (the `nside_target != nside_beam` operator bug is real and will bite others).
+
+---
+
+## 2026-08-13 — Does cross-linking survive a flat prior?
+
+**Question.** The 2026-08-07 entry showed the beam-smoothed-truth prior supplied
+most of the apparent frequency trend, and `HANDOFF.md` records that *every*
+residual in the series uses that prior — including the cross-linking headline
+(floor −26.5% on the plane, −37.8%/−44.0% off-plane at beam scale). The argument
+that a fixed-frequency comparison is not confounded the same way, because the
+prior does not move between the two arms, was made but never demonstrated.
+
+**Method.** `audit_flat_prior.py`. Re-solve the off-plane drift-vs-raster
+comparison under both prior means, changing nothing else — same operators, same
+cached TODs, same seeded noise replay, same prior covariance
+$S^{-1} = I/\sigma_s^2$, same regularisation. Only $\mu$ differs:
+
+- smoothed: $\mu = B_\nu s$, the series' recipe
+- flat: $\mu = \langle s \rangle$, constant at the patch mean
+
+Both strategies restricted to the 317 shared pixels; beam-scale numbers use
+cells lying entirely inside the shared region, so the two are compared on
+identical cells.
+
+**Validation first.** The smoothed-prior arm reproduces the published numbers to
+three decimals (floor 1.287 → 1.158 K, −10.0% per-pixel; 0.300 → 0.187 K,
+−37.8% beam-scale; total at matched depth −4.5% and −44.0%). The re-solve is
+therefore sound and any difference below is the prior, not the pipeline.
+
+**Result — the headline survives, and strengthens.**
+
+| | per-pixel | beam-scale |
+|---|---|---|
+| smoothed, floor | 1.287 → 1.158 K (**−10.0%**) | 0.300 → 0.187 K (**−37.8%**) |
+| smoothed, total @ depth | 1.300 → 1.241 K (−4.5%) | 0.313 → 0.175 K (−44.0%) |
+| **flat**, floor | 1.806 → 1.218 K (**−32.6%**) | 0.392 → 0.210 K (**−46.4%**) |
+| **flat**, total @ depth | 1.819 → 1.294 K (−28.9%) | 0.402 → 0.196 K (−51.3%) |
+
+This is the **opposite** of what happened to the frequency trend. There the
+prior manufactured the effect; here it was *masking* it. Removing the prior's
+structure roughly triples the per-pixel cross-linking gain (−10.0% → −32.6%).
+
+**Why — the drift leans on the prior far harder than the raster does.** Taking
+the ratio flat/smoothed on the same quantity (1.00 would mean the prior was
+doing nothing):
+
+| | drift | raster |
+|---|---|---|
+| per-pixel floor | 1.287 → 1.806 K (**1.40×**) | 1.158 → 1.218 K (**1.05×**) |
+| beam-scale floor | 0.300 → 0.392 K (1.30×) | 0.187 → 0.210 K (1.12×) |
+
+Withdrawing the prior costs the drift 40% and the raster 5%. That is exactly
+what the mode-count argument predicts: the drift measures 17 modes to the
+raster's 34, so it has twice the null space for the prior to fill, and a
+truth-derived prior fills it flatteringly. Prior-independently, on the shared
+pixels the floor is 0.786 × sky structure for the drift against 0.530 for the
+raster.
+
+**What it changed.** The cross-linking conclusion is now demonstrated rather
+than argued, and it is stronger than published. More importantly the *reason*
+to prefer cross-linking is sharper: it is not merely that the raster's residual
+is lower, it is that the drift's number was being propped up by a prior no real
+survey has. Quote the flat-prior gains when the claim is about what the survey
+measures.
+
+**Loose end, pre-existing.** At beam scale the raster's "floor" (0.187 K) exceeds
+its "total" (0.181 K) under the smoothed prior, and likewise under the flat one
+(0.210 vs 0.199 K) — adding noise slightly *reduces* the beam-scale residual, so
+the quadrature decomposition into floor and noise that holds on the plane to
+<0.1% does not hold here. This is in the published numbers too, not introduced
+by this audit. Most likely the beam-scale residual is bias-dominated and the
+noise partially decorrelates it. Worth understanding before quoting a beam-scale
+noise term off this field.

@@ -194,6 +194,45 @@ plane's headline −26.5% floor gain (per-pixel) understated the effect.
 Note the residuals carry a positive monopole (drift +0.754 K, raster +0.542 K
 off-plane). All quoted numbers are `np.std`, so it does not enter them.
 
+### Flat-prior audit of the above (added 2026-08-13)
+
+Every number in this file uses the beam-smoothed-truth prior, which turned out
+to supply most of the apparent frequency trend in experiment 005. Re-solved
+under a flat prior (constant at the patch mean) with everything else held fixed
+— `audit_flat_prior.py`, a re-solve off the caches, ~1 min. The smoothed-prior
+arm reproduces the published numbers to three decimals, so the comparison is
+like for like.
+
+**The cross-linking result survives, and strengthens** — the opposite of what
+happened to the frequency trend, where the prior manufactured the effect. Here
+it was *masking* it:
+
+| off-plane, no HP, gauss | per-pixel | beam-scale |
+|---|---|---|
+| smoothed prior, floor | 1.287 → 1.158 K (−10.0%) | 0.300 → 0.187 K (−37.8%) |
+| **flat prior, floor** | 1.806 → 1.218 K (**−32.6%**) | 0.392 → 0.210 K (**−46.4%**) |
+| **flat prior, total @ depth** | 1.819 → 1.294 K (−28.9%) | 0.402 → 0.196 K (−51.3%) |
+
+**The reason is that the drift leans on the prior far harder than the raster
+does.** Withdrawing the prior's structure costs the drift 40% per-pixel
+(1.287 → 1.806 K) and the raster only 5% (1.158 → 1.218 K). That is what the
+mode-count argument predicts — the drift measures 17 modes to the raster's 34,
+so it has twice the null space for a truth-derived prior to fill flatteringly.
+Prior-independently the floor is 0.786 × sky structure for the drift against
+0.530 for the raster.
+
+So quote the **flat-prior** gains when the claim is about what the survey
+measures. The case for cross-linking is not just that the raster's residual is
+lower, it is that the drift's number was propped up by a prior no real survey
+has.
+
+**Unresolved, and pre-existing.** At beam scale the raster's floor exceeds its
+total (0.187 vs 0.181 K smoothed, 0.210 vs 0.199 K flat) — adding noise slightly
+*reduces* the beam-scale residual, so the floor/noise quadrature split that holds
+on the plane to <0.1% does not hold off-plane at beam scale. Present in the
+published numbers too. Understand this before quoting a beam-scale noise term
+for this field.
+
 ---
 
 ## Frequency sweep across Band 1 (experiment 005, added 2026-08-05)
