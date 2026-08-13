@@ -71,13 +71,21 @@ the mode-count argument above.
 
 ## Where things stand
 
-Branch `ska-drift-analysis`, **3 commits ahead of origin, unpushed**:
+Branch `ska-drift-analysis`, **pushed and in sync with origin** (2026-08-13).
+Everything through experiment 005 is committed: the sweep code and notebook,
+the write-ups here and in `METHODS.md`, and `ANALYSIS_LOG.md` (the chronological
+record of reasoning and maths — results belong here, mechanisms in `METHODS.md`,
+derivations there).
 
-```
-d605f46 SKA exp 004: add total-residual comparison plot
-b444d80 SKA: add MeerKLASS-style constant-elevation scan (experiment 004)
-ce10a29 Relabel "reconstruction floor" as "beam + prior floor"
-```
+**Deliberately not in git**, so do not be surprised by a thin checkout:
+
+- `mapmaker_ops_*.pkl` (25–100 MB each) and `simulated_TODs_*.npz` — gitignored,
+  rebuilt by `run_freq_sweep.sh` or the notebooks if deleted. Four early SKA
+  caches are tracked from before that rule and were left alone rather than
+  rewritten out of history.
+- `figures/` is gitignored repo-wide; the freqsweep PNGs regenerate from
+  `plot_freqsweep_maps.py`.
+- `ANALYSIS_LOG.pdf` is built from `ANALYSIS_LOG.md`.
 
 Pushing needs no special scope now — `.github/workflows/publish.yml` was
 dropped in `a4dd646` (upstream's PyPI workflow, would only ever fail on a fork,
