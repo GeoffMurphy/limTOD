@@ -96,6 +96,7 @@ bit-identically and matches the cached TODs to 4e-14 relative.
 | `ska_drift_scan.ipynb` | exp 001/002 — drift at b ≈ +50°, off-plane baseline |
 | `ska_drift_galplane.ipynb` | exp 003 — same drift across the galactic plane, plus the 1/f noise budget |
 | `ska_meerklass_scan.ipynb` | exp 004 — constant-elevation raster, rising + setting |
+| `ska_freq_sweep.ipynb` | exp 005 — off-plane drift swept across Band 1 (5 channels, shared nside 128); config + cached heavy steps in `ska_freq_sweep.py`, driver `run_freq_sweep.sh` |
 | `ska_results_summary.ipynb` | small notebook that parses the others' printed output and plots 3 summary figures |
 
 ---
@@ -187,12 +188,194 @@ off-plane). All quoted numbers are `np.std`, so it does not enter them.
 
 ---
 
+## Frequency sweep across Band 1 (experiment 005, added 2026-08-05)
+
+Everything above is 350 MHz, the bottom edge of Band 1. `ska_freq_sweep.ipynb`
+repeats the **off-plane** drift geometry of experiment 001 at five equally
+spaced channels — **350, 525, 700, 875, 1050 MHz** — changing nothing but the
+frequency. Gaussian beam only (sidelobes are a bright-field question). All five
+solved on a **shared nside 128 grid** so residuals compare like for like;
+config and the cached heavy steps live in `ska_freq_sweep.py`, warmed by
+`./run_freq_sweep.sh` (~1.5 h for the sweep on 12 cores).
+
+**Frequency is itself a lever on the mode count — the headline result.** Queued
+item 0 below asks how to raise the number of measured modes. Going up in
+frequency does it without touching the strategy:
+
+| | 350 MHz | 525 | 700 | 875 | 1050 |
+|---|---|---|---|---|---|
+| FWHM | 3.99° | 2.66° | 2.00° | 1.60° | 1.33° |
+| modes > 1% λmax | 17 | 27 | 37 | 46 | **55** |
+| observed area [deg²] | 270 | 184 | 150 | 133 | 119 |
+| modes / 100 deg² | 6.3 | 14.7 | 24.6 | 34.5 | **46.2** |
+| residual / sky rms | 0.525 | 0.452 | 0.427 | 0.437 | 0.457 |
+
+**3.2× more modes across the band, 7.3× per unit sky** — against cross-linking's
+factor of 2 (17 → 34). The mode count is robust: the trend holds at every
+eigenvalue threshold (>10%: 8 → 38; >1%: 17 → 55; >0.1%: 23 → 69) and is
+unchanged if the truth-dependent noise weighting is dropped for a plain `AᵀA`
+(17 → 56). The patch *shrinks* 2.3× at the same time, so the cost of going up in
+frequency is **area, not map quality**.
+
+**The residual row above is biased high at the top channels — corrected here.**
+On the shared nside 128 grid the ratios (0.53, 0.45, 0.43, 0.44, 0.46) look
+flat, but 875 and 1050 MHz sit at 3.5 and 2.9 px/FWHM and are undersampled.
+Re-run at nside 256 they improve substantially, and the **flatness turns out to
+be entirely an artefact**:
+
+| residual ÷ sky rms | 350 | 525 | 700 | 875 | 1050 |
+|---|---|---|---|---|---|
+| shared nside 128 | 0.525 | 0.452 | 0.427 | 0.437 | 0.457 |
+| **adequately sampled** | 0.525 | 0.452 | 0.427 | **0.350** | **0.336** |
+| (grid used) | ns128 | ns128 | ns128 | ns256 | ns256 |
+
+**The corrected trend is monotonic: the drift reconstructs the sky better, in
+relative terms, the higher in Band 1 you go** — 0.525 → 0.336, a 36%
+improvement. The mode count is unaffected by the regrid at either channel
+(875: 46 → 46; 1050: 55 → 56), which is the fourth independent confirmation of
+its grid-independence.
+
+Caveat when quoting this: the *absolute* residual falls ~27× across the band
+(1.242 → 0.034 K) but the sky structure itself falls ~24× (2.37 → 0.10 K), so
+almost all of the absolute drop is the sky dimming as ν^−2.7. The reconstruction
+improvement is the 1.56× in the ratio, not the 27×.
+
+**The elevation ladder stops working above 700 MHz.** 52°/50°/48° is 2° Dec
+steps — half a beam at 350 MHz, but a *whole* beam at 700 MHz and 1.5 beams at
+1050 MHz, so the three strips separate into ribbons with unobserved gaps. This
+does not degrade the residual (the mode gain outweighs it) but it is why the
+observed area falls faster than the beam does. A ladder spaced in *beams* is the
+obvious fix.
+
+**Off-plane the 2 mHz high-pass is a non-issue at every channel** (effect within
+±5%, and it does *not* track the crossover). Two separate reasons, and the first
+corrects a claim made earlier in this file.
+
+*The sky band does not move with frequency.* The tempting prediction — a beam
+crossing takes FWHM / (15 deg/hr), so the sky band should climb from 1.05 to
+3.14 mHz and cross the fixed 2 mHz cutoff near 700 MHz — is **wrong at the
+premise**, and measuring the cached sky TODs refutes it:
+
+| | 350 | 525 | 700 | 875 | 1050 MHz |
+|---|---|---|---|---|---|
+| beam edge 1/(crossing time) | 1.05 | 1.57 | 2.09 | 2.62 | 3.14 mHz |
+| **median-power frequency** | **0.28** | **0.28** | **0.28** | **0.28** | **0.28 mHz** |
+| 90% of power below | 1.67 | 1.67 | 1.67 | 1.67 | 1.67 mHz |
+| power below 2 mHz | 93.0% | 92.7% | 92.9% | 93.2% | 93.6% |
+
+The beam edge triples across the band; **nothing in the measured spectrum moves
+with it.** Diffuse GDSM emission is red, so the large-scale gradient along the
+drift dominates however narrow the beam gets — the sky power sits at the pass
+fundamental (0.28 mHz, one 1 h traverse) at every channel. This is consistent
+with the original empirical note above ("99.8% of the drift's sky power sits
+below 2 mHz ... fundamental 0.28 mHz"); the beam crossing time bounds the
+*support* of the sky signal, not where its power lives, and a high-pass cares
+about the latter. `beam_crossing_freq_hz` is documented accordingly — do not
+compare it against a filter cutoff.
+
+*And the term it would govern is not the limiting one anyway.* The residual is
+96–100% beam + prior floor and only 5–8% 1/f, so perfectly removing 1/f could
+not move the total by more than a few percent. The cutoff question belongs to
+the plane, where 1/f is a much larger share of a much larger residual. Note
+also that the **+36% high-pass penalty quoted above is the galactic-plane
+drift** — off-plane at nside 64 the same filter already helped slightly
+(−9.7%).
+
+**Cross-check, and a third grid for the mode-count claim.** The 350 MHz channel
+is experiment 001 re-run at nside 128 (4.06× the pixels):
+
+| 350 MHz, same field/seeds | nside 64 | nside 128 |
+|---|---|---|
+| pixels solved | 317 | 1288 |
+| per-pixel residual | 1.300 K | 1.242 K |
+| beam-scale residual | 0.313 K | 0.178 K |
+| **modes > 1%** | **17** | **17** |
+| effective modes | 3.7 | 3.7 |
+
+The mode count is identical, as the grid-independence argument requires — it now
+rests on nside 32, 64 and 128 (and 256, below). The beam-scale numbers differ
+only because
+`beam_cells` keeps cells whose pixels *all* lie inside the patch, and that
+criterion tightens 4× with the grid; beam-scale values are comparable within the
+sweep but **not** against the nside-64 numbers quoted earlier in this file.
+
+### Prior dependence: the residual trend was the prior, not the survey
+
+Raised by a reviewer after the maps figure was circulated, and they were right.
+The Wiener prior mean is the truth smoothed with **that channel's beam**, so as
+the beam narrows the prior sharpens by itself — the prior is not held fixed
+across the sweep. Measured (residual ÷ sky rms):
+
+| | 350 | 525 | 700 | 875 | 1050 |
+|---|---|---|---|---|---|
+| beam-smoothed-truth prior, **no data** | 0.511 | 0.470 | 0.438 | 0.406 | 0.360 |
+| full reconstruction, that prior | 0.525 | 0.452 | 0.427 | 0.350 | 0.336 |
+| what the data bought | 0.97× | 1.04× | 1.03× | 1.16× | 1.07× |
+| **flat prior**, reconstruction | 0.769 | 0.685 | 0.650 | 0.597 | 0.597 |
+| what the data bought | 1.30× | 1.46× | 1.54× | 1.67× | 1.67× |
+
+**The 0.525 → 0.336 trend is the prior sharpening, not the map improving** —
+the data contributes 0.97–1.16×, and at 350 MHz it makes the map marginally
+*worse* by injecting noise into the modes it measures. With a flat prior
+(constant at the patch mean) the data's own contribution is visible and does
+grow with frequency: residual 0.769 → 0.597, gain 1.30× → 1.67×, saturating
+above 875 MHz.
+
+**So the conclusion survives but the evidence changed.** Quote the flat-prior
+numbers or the mode count — both prior-independent — when the claim is about
+what the survey measures. `plot_freqsweep_maps.py` emits both map versions plus
+`figures/freqsweep_prior_dependence.png`, which is the figure to send anyone
+who asks about priors.
+
+Note this is not specific to experiment 005: every residual in this file is
+quoted with the truth-derived prior. What is specific is that a *frequency*
+trend is confounded, because the prior moves with the beam. On the plane the
+data does beat its prior comfortably (1.24×) — off-plane it barely does.
+
+### Grid check at 1050 MHz: ~3 px/FWHM is NOT a safe floor
+
+The top channel re-run at nside 256 (5.8 px/FWHM) against the shared nside 128
+grid (2.9 px/FWHM). Cost ~1.2 h; run it detached (`setsid nohup`) — background
+shell jobs do not survive a session ending, which killed two earlier attempts.
+
+| 1050 MHz | ns128 (2.9 px/FWHM) | ns256 (5.8) | |
+|---|---|---|---|
+| modes > 1% | 55 | 56 | +1.8% |
+| effective modes | 18.95 | 18.99 | +0.2% |
+| observed area | 119.0 | 117.0 deg² | −1.7% |
+| sky structure rms | 0.0985 | 0.1000 K | +1.5% |
+| **per-pixel residual** | **0.0451** | **0.0336 K** | **−25.5%** |
+| beam + prior floor | 0.0432 | 0.0328 K | −24.1% |
+
+**Two different answers in one table.** The *mode count* is grid-independent —
+that claim now rests on nside 32, 64, 128 and 256. The *residual* is not: it
+falls ~25% on the finer grid while the sky structure it is measured against
+barely moves (+1.5%), so this is a genuine reconstruction improvement, not a
+normalisation artefact. Note it moves *opposite* to the naive expectation, since
+a finer grid has more sub-beam structure to get wrong.
+
+So **`HANDOFF.md`'s ~3 px/FWHM rule of thumb is too generous** — 2.9 px/FWHM
+cost 25% in residual here. Use ~5 px/FWHM when the residual (rather than the
+mode count) is the quantity of interest. The nside-64 conclusions elsewhere in
+this file are unaffected: they sit at 4.4 px/FWHM and their headline claims are
+mode-count based.
+
+875 MHz was re-run the same way and behaves identically: modes 46 → 46, sky rms
++1.5%, residual 0.0723 → 0.0587 K (−19%). Both re-runs are cached
+(`*_f0875_ns256.pkl`, `*_f1050_ns256.pkl`); 700 MHz at 4.4 px/FWHM is the
+remaining unchecked channel, and by the trend of the other two is likely biased
+high by <10%.
+
+---
+
 ## Queued next
 
 0. **Raise the number of measured modes** — this is now the headline lever,
    replacing the nside re-run. The drift measures 17, the scan 34; everything
    else is prior. More crossing angles and more elevations both add modes,
-   whereas more integration time on the same tracks does not.
+   whereas more integration time on the same tracks does not. **Experiment 005
+   adds a third lever: frequency** — 55 modes at 1050 MHz on the same tracks,
+   at the price of a 2.3× smaller patch.
 1. **Depth-matched raster done properly** — narrow the azimuth throw so the scan
    natively selects ~321 px, instead of the analytic noise scaling used above.
 2. **More crossing angles** — currently only two (~75° apart). More elevations

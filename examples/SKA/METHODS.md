@@ -1,6 +1,6 @@
 # SKA drift-scan series — how the machinery actually works
 
-A practitioner's tour of what the four notebooks in this directory really do:
+A practitioner's tour of what the five notebooks in this directory really do:
 the sky and beam models, the TOD simulation, the map-maker and the exact
 recipe it is called with, the metrics, and the pitfalls we hit. It documents
 *only* what the notebooks use — no polarisation, no MPI, no patchbeam — and
@@ -28,10 +28,17 @@ swap beams, or change the scan pattern one at a time and read off the cost of
 each. That attribution game — not realism — is the design principle behind
 most choices below.
 
-Fixed across all experiments: SKA-Mid-like site (Karoo, lat −30.713°), one
+Fixed across experiments 001–004: SKA-Mid-like site (Karoo, lat −30.713°), one
 15 m dish, one frequency channel at **350 MHz** (HI at z = 3.06 — the extreme
 low end of Band 1, hence the very large beam), 2 s sampling, 3 h of
 integration total, nside 64 maps.
+
+Experiment 005 is the one exception: it sweeps the frequency across the whole
+of Band 1 (350–1050 MHz in five channels) at fixed geometry, on a shared
+nside 128 grid because the beam narrows to 1.33° at the top of the band and
+nside 64 would undersample it badly (1.5 px/FWHM). See §8 for what that sweep
+changed about the rest of this document — including the sampling floor, which
+turned out to be higher than we thought.
 
 ## 2. Sky model
 
@@ -197,9 +204,18 @@ Two honest caveats about this recipe:
 - The prior mean is derived from the truth. That is fine for *attribution*
   (everything is differenced against the same truth) but it flatters absolute
   performance; a real survey would use an external sky model with its own
-  errors. The solve does genuinely beat its prior — prior alone sits 26.6 K
-  from the plane truth, the solve 21.4 K — so the machine is not just
-  returning μ.
+  errors. **How much it flatters depends strongly on the field, and off-plane
+  it is enough to invalidate a naive reading.** On the galactic plane the solve
+  clearly beats its prior — prior alone 26.6 K from truth, solve 21.4 K, a
+  1.24× gain — because the plane has far more structure than a beam-smoothed
+  model captures. Off-plane at 350 MHz it does **not**: prior alone 0.511 ×
+  sky rms, solve 0.525, i.e. **0.97×** — the data makes it marginally *worse*,
+  by injecting 1/f and white noise into the modes it measures. Always quote
+  the prior-alone number next to the solve; "residual" on its own does not
+  distinguish a good map from a good prior.
+- **A frequency trend in that residual is confounded**, because μ is smoothed
+  with the beam and the beam moves. See §8 and pitfall 6 — this is the trap
+  that caught experiment 005's first write-up.
 - The noise variance uses the truth too (`A@truth` = the noiseless TOD). In
   practice you would estimate it from the data; here it removes one more
   confounder.
@@ -260,7 +276,91 @@ radiometer estimate Tsys/√(samples-per-pixel) is the wrong benchmark here: it
 assumes every pixel is an independent measurement, overstating the
 information by ~20×.
 
-## 8. Pitfalls log
+Experiment 005 hardened this considerably. Grid-independence now rests on
+**four grids** — the 350 MHz drift gives 17 modes at nside 32, 64 *and* 128
+(4.06× the pixels, same 3.7 effective), and the 1050 MHz channel gives 55 vs 56
+at nside 128 vs 256. It is also insensitive to the two arbitrary choices in its
+definition: the trend across Band 1 holds at every threshold (>10%: 8 → 38;
+>1%: 17 → 55; >0.1%: 23 → 69), and dropping the truth-dependent noise weighting
+for a plain AᵀA changes it by one mode (17 → 56). **Of everything quoted in
+this document, the mode count is the most trustworthy number.**
+
+**Residual ÷ sky-structure rms.** The metric to use across *frequencies*, since
+the sky itself dims as ν^−2.7 and absolute temperatures fall for reasons that
+have nothing to do with the strategy. Off-plane it falls monotonically across
+Band 1 — 0.525, 0.452, 0.427, 0.350, 0.336 — each channel quoted on a grid
+where it is adequately sampled (pitfall 4), which means nside 256 for the top
+two; on the shared nside 128 grid the last two read 0.437 and 0.457 and the
+trend looks spuriously flat. The ratio survives the grid change because
+the sky rms is nearly grid-independent here (+1.5% from nside 128 to 256),
+which is *not* true of the beam-scale metric below. Report numerator and
+denominator separately when comparing grids:
+a change in the ratio otherwise hides which one moved (at 1050 MHz, ns128 →
+ns256, the sky rms moved 1.5% and the residual 25%).
+
+**Beam-scale numbers are not comparable across grids.** `beam_cells` keeps only
+cells whose pixels *all* lie inside the patch, and that criterion tightens 4×
+each time the grid refines — a cell needs 4× as many pixels inside at nside 128
+as at nside 64. The same 350 MHz run gives 0.313 K beam-scale at nside 64 and
+0.178 K at nside 128 for this reason alone. Comparable within one grid; never
+across.
+
+## 8. Frequency dependence — what moves and what doesn't
+
+Experiment 005 held the geometry fixed and moved only the frequency. Several
+things that *sound* like they should scale together do not, and two intuitions
+this series had been carrying turned out to be wrong.
+
+**What moves.** The beam, as 1.22 λ/D: 3.99° → 1.33° across Band 1. Everything
+downstream of the beam width follows it — the observed patch shrinks (270 →
+119 deg²), the measured mode count rises (17 → 55, and 6.3 → 46.2 modes per
+100 deg²), and the elevation ladder's fixed 2° Dec steps go from half a beam to
+1.5 beams, so the three nightly strips stop overlapping above 700 MHz and the
+patch breaks into ribbons. **Frequency is therefore a lever on mode count** —
+a bigger one than cross-linking (which buys 2×) — paid for in sky area, not in
+map quality.
+
+**What does not move: the sky's temporal spectrum.** This one is a trap. A
+drift crosses the beam in FWHM / (15°/hr) — 957 s at 350 MHz, 319 s at
+1050 MHz — so it is natural to say "the sky signal band climbs from 1.0 to
+3.1 mHz and will cross a fixed high-pass cutoff". **Measured, nothing moves:**
+
+| | 350 | 525 | 700 | 875 | 1050 MHz |
+|---|---|---|---|---|---|
+| 1/(beam crossing time) | 1.05 | 1.57 | 2.09 | 2.62 | 3.14 mHz |
+| median-power frequency | 0.28 | 0.28 | 0.28 | 0.28 | 0.28 mHz |
+| 90% of power below | 1.67 | 1.67 | 1.67 | 1.67 | 1.67 mHz |
+| power below 2 mHz | 93.0 | 92.7 | 92.9 | 93.2 | 93.6 % |
+
+Diffuse emission is red, so the large-scale gradient along the drift dominates
+the TOD spectrum however narrow the beam is; the power sits at the **pass
+fundamental** (0.28 mHz for a 1 h traverse) at every channel. The beam crossing
+time bounds the *support* of the sky signal — the finest structure the beam can
+transfer — not where its power lives, and a high-pass cares about the latter.
+`ska_freq_sweep.sky_band_percentiles` measures the honest version;
+`beam_crossing_freq_hz` is documented as the thing *not* to compare against a
+filter cutoff.
+
+Consequence: **off-plane, the high-pass cutoff is not an important knob at any
+frequency** (effect within ±5%, not tracking any crossover). Two independent
+reasons — there is no crossover, and the residual is 96–100% beam + prior floor
+with only 5–8% 1/f to remove. It remains a live question on the plane, where
+1/f is a much larger share of a much larger residual.
+
+**Watch for confounded thresholds.** The Dec-gap threshold and the (putative)
+band crossover both scale as 1/FWHM, so with a 2° ladder and a 2 mHz cutoff
+they land within ~30 MHz of each other near 700 MHz. Design the comparison so
+each effect has a control that holds the other fixed — the no-HP column sees
+coverage with no filter involved; the HP-minus-no-HP difference *at one
+channel* sees the filter at fixed coverage. Never read either off the total.
+
+**Caveat on the sky model.** GSM08 builds maps by interpolating a few principal
+components in frequency, so its sky *structure* is close to frequency-
+independent by construction. That plausibly contributes to both the flat TOD
+spectrum and the smooth residual trend, and it cannot be checked from inside
+GSM08. A real sky has spectrally varying structure.
+
+## 9. Pitfalls log
 
 Things that actually bit us, in decreasing order of danger:
 
@@ -271,19 +371,51 @@ Things that actually bit us, in decreasing order of danger:
    ratio at nside 64 looks like overparameterisation, but coarsening trades a
    prior-filled null space (harmless, prior's job) for beam undersampling
    (real information loss). Diagnose with mode counts, not pixel counts.
-4. **Per-pixel residuals on an oversampled grid mislead** in both directions:
+4. **~3 px/FWHM is *not* a safe sampling floor — use ~5 if you care about the
+   residual.** This document previously treated 3 as the floor. At 1050 MHz,
+   going from 2.9 px/FWHM (nside 128) to 5.8 (nside 256) left the mode count
+   alone (55 → 56) but **cut the residual 25%** (0.0451 → 0.0336 K) while the
+   sky structure it is measured against moved 1.5%. Note the sign: a finer grid
+   has *more* sub-beam structure to get wrong, so the naive expectation is the
+   residual goes up. The mode count and the residual have different sampling
+   requirements — satisfying one does not satisfy the other. (The nside-64
+   conclusions elsewhere here are unaffected: 4.4 px/FWHM, and mode-count
+   based.)
+5. **`beam_crossing_freq_hz` is not the sky signal band.** Comparing it against
+   a high-pass cutoff produces a confident, wrong prediction — see §8.
+6. **The residual is prior-dominated, so a trend in it across frequency is a
+   trend in the prior.** μ is the truth smoothed with the *beam*, so as the
+   beam narrows the prior sharpens by itself, with no data involved. Across
+   Band 1 off-plane the prior alone scores 0.511 → 0.360 while the full solve
+   scores 0.525 → 0.336: the whole apparent improvement is the prior. Re-solve
+   with a flat prior (constant at the patch mean) to see what the data does —
+   0.769 → 0.597, with the data's gain over its own prior growing 1.30× →
+   1.67×. The conclusion survives; the evidence for it does not. This was
+   caught only after the figure had been circulated, by a reviewer asking
+   about priors. `plot_freqsweep_maps.py` now emits both versions.
+7. **Per-pixel residuals on an oversampled grid mislead** in both directions:
    they overstate absolute error (~4×) and understate strategy differences
    (~4×). Quote beam-scale alongside.
-5. **VSCode notebooks:** close a notebook before executing it externally
+8. **VSCode notebooks:** close a notebook before executing it externally
    (`jupyter nbconvert --execute --inplace`), or the editor's cached copy
    overwrites the result.
-6. **The editable install means the checked-out branch selects the limTOD
+9. **Long jobs must be detached.** A background shell job started from an agent
+   session (or any terminal that later closes) dies with it, silently and with
+   no traceback — this killed the nside-256 build twice, and looked exactly
+   like an OOM. Use `setsid nohup … &`, and check for the *output artefact*
+   rather than trusting a "completed" status.
+10. **Never extrapolate a tqdm ETA from the first few samples.** The nside-256
+   operator reported `19.29 s/it` and a 29-hour ETA over its first 7 samples;
+   the settled rate was ~0.4 s/it and the real cost ~1.2 h. First-call overhead
+   dominates a cold loop. Let it run a few hundred iterations before believing
+   the rate — and measure before quoting a cost.
+11. **The editable install means the checked-out branch selects the limTOD
    version.** Old branches silently revert the library.
-7. **Caches** (`simulated_TODs_*.npz`, `mapmaker_ops_*.pkl`) are keyed by
+12. **Caches** (`simulated_TODs_*.npz`, `mapmaker_ops_*.pkl`) are keyed by
    filename only — nothing hashes the config. Change geometry or seeds
    without renaming the cache and you will analyse stale data.
 
-## 9. Where the numbers live
+## 10. Where the numbers live
 
 | what | where |
 |---|---|
@@ -292,5 +424,7 @@ Things that actually bit us, in decreasing order of danger:
 | plane drift + 1/f budget (exp 003) | `ska_drift_galplane.ipynb` |
 | plane raster vs drift (exp 004) | `ska_meerklass_scan.ipynb` |
 | off-plane raster, temperature scale, summary figures | `ska_results_summary.ipynb` |
+| Band 1 frequency sweep, off-plane (exp 005) | `ska_freq_sweep.ipynb`, config in `ska_freq_sweep.py`, driver `run_freq_sweep.sh` |
+| the maps-vs-frequency figure for external use | `plot_freqsweep_maps.py` → `figures/freqsweep_maps_sampled.png` (each channel on an adequately sampled grid, numbers printed on the panels) |
 | current state, results tables, queued work | `HANDOFF.md` |
 | archived per-experiment PDFs | `results/` |
