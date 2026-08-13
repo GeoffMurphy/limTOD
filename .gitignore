@@ -212,5 +212,11 @@ secrets.yaml
 examples/DSA/mapmaker_ops_*.pkl
 examples/DSA/simulated_TODs_*.npz
 examples/DSA/assets/
+# Same for SKA: operator caches are 25-100 MB each and are rebuilt by
+# run_freq_sweep.sh / the notebooks if deleted. (Four early ones are already
+# tracked from before this rule; left alone rather than rewritten out.)
+examples/SKA/mapmaker_ops_*.pkl
+# Built from ANALYSIS_LOG.md, not a source document.
+examples/SKA/ANALYSIS_LOG.pdf
 # Stray local scratch dir (near-duplicate of tests/)
 /test/
