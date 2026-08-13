@@ -21,6 +21,10 @@ structure sweeps through the rings coherently and nothing cross-links it away.
 |------|---------|
 | [ska_drift_scan.ipynb](./ska_drift_scan.ipynb) | End-to-end drift-scan TOD simulation + HPW map-making, Gaussian vs tapered-aperture beam (experiments 001/002) |
 | [ska_drift_galplane.ipynb](./ska_drift_galplane.ipynb) | Same design with the LST window shifted onto the galactic plane — sidelobe stress test (experiment 003) |
+| [ska_freq_sweep.ipynb](./ska_freq_sweep.ipynb) | The off-plane drift swept across SKA-Mid Band 1 — five channels, 350–1050 MHz, shared nside 128 grid (experiment 005) |
+| [ska_freq_sweep.py](./ska_freq_sweep.py) | Sweep configuration and the cached heavy steps (TOD simulation, operator construction) for experiment 005 |
+| [run_freq_sweep.sh](./run_freq_sweep.sh) | Warms every experiment-005 cache; channels run concurrently (~1.5 h on 12 cores, plus ~1.2 h per nside-256 grid check) |
+| [plot_freqsweep_maps.py](./plot_freqsweep_maps.py) | Standalone maps-vs-frequency figure for sharing outside the project — each channel on a grid that samples its beam adequately, residual RMS and residual/sky ratio printed on the panels, caveats in the footnote |
 | [ska_common.py](./ska_common.py) | Site constants, both beam models, equatorial-frame GDSM wrapper, drift-night timing, AltAz→ICRS track |
 | `simulated_TODs_ska_drift_{gauss,airy}.npz` | Cached TODs (regenerated if deleted) |
 | `mapmaker_ops_ska_drift_{gauss,airy}_ns64.pkl` | Cached map-maker operators (regenerated if deleted) |
@@ -67,6 +71,15 @@ sky signal occupies temporal frequencies ≲ 1 mHz (one beam crossing ≈ 16 min
 overlapping the 1/f knee — so the aggressive high-pass filtering used by the
 DSA azimuth-scan analysis is not available, and the notebook compares
 map-making with no high-pass vs. a 2 mHz cutoff.
+
+That ≲ 1 mHz figure holds across the whole of Band 1, which is not obvious.
+The beam crossing time scales with the FWHM, so the band the beam can *transfer*
+climbs to ~3.1 mHz at the top of the band — but experiment 005 measures the sky
+TOD spectrum and finds it does **not** move: median-power frequency 0.28 mHz
+(the 1 h pass fundamental) and ~93% of power below 2 mHz at every channel from
+350 to 1050 MHz, because diffuse emission is red. The high-pass therefore has no
+crossover to track, and off-plane it makes little difference anyway — the
+residual there is 96–100% beam + prior floor with only 5–8% 1/f to remove.
 
 Survey to-dos are collected in "SKA Scanning Strategy.pdf" (repo root, not yet
 folded into these notebooks).
