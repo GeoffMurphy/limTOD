@@ -453,7 +453,7 @@ statement of the result in the whole set.
 
 <div class="figblock">
 <img class="figure" src="figures/hi_maps.png" alt="HI in the map domain">
-<p class="caption"><em>Figure 6 — one channel, frequency mean removed, which is the part a survey can use and the part the drift loses. True HI, then the drift's map-made version — visibly washed out, the 0.38x of the split above — then the raster's, which keeps far more structure. The fourth panel is the cleaned data on a scale 50x wider: at 4 modes removed the raster's residual is 24x the HI, so nothing in that image is signal. Diverging blue-grey-red, so zero recedes and sign is readable.</em></p>
+<p class="caption"><em>Figure 6 — one channel, frequency mean removed, which is the part a survey can use. Common resolution on the 119 interior pixels, the same footing as the quantitative figures. True HI, the drift's map-made version, the raster's, and the cleaned data on a scale 82x wider — at 4 modes removed nothing in that fourth image is signal. Diverging blue-grey-red, so zero recedes and sign is readable. The colour ratio is a 99th-percentile display scale at one channel, not the residual/HI ratio of Figures 1-3.</em></p>
 </div>
 
 **The ablation.** With the noise replayable, the same operator is re-solved three ways at fixed HI injection: `floor` from noiseless data, so the residual is only sky the strategy never measured and the prior filled in; `total` from the full data; and `noiseonly` as the difference of a noisy and a noiseless foreground solve. If `floor` and `total` agree, the noise plays no part.
@@ -659,3 +659,56 @@ is a *non-smooth* residual, a filter that does not assume spectral smoothness
 (GPR, or a foreground model built from the null space itself) is a more
 promising lever than tuning the PCA mode count, which the residual/HI table
 above shows saturating.
+
+
+### 2026-08-26 — the map-domain figure, and how much the convention moves it
+
+Figure 6 was still built from the as-run 277-pixel cube at native per-channel
+resolution, while Figures 1-3 had moved to common resolution on the 119
+interior pixels. Switching it over, and what that cost.
+
+**Three of the four panels did not need it.** Each panel is a single channel,
+so there is one beam in it and nothing chromatic to correct. The exception is
+the cleaned panel, where PCA ran *across* frequency: on as-run data it shows a
+residual the current pipeline no longer produces, which is the real reason to
+switch.
+
+**Reconvolving costs a factor ~3 in the HI itself.** At channel 16, 99th
+percentile of $|\delta T_b|$:
+
+| | true HI | raster map-made | cleaned (4 modes) | colour ratio |
+|---|---|---|---|---|
+| as run, 277 px | 0.699 µK | 0.341 | 35.8 | 51x |
+| as run, 119 interior | 0.632 | 0.243 | 25.6 | 40x |
+| **common resolution, 119 px** | **0.223** | 0.164 | 19.7 | **82x** |
+
+The signal is small-scale, so smoothing to the widest beam in the band eats
+most of it while the residual only falls ~1.8x. The displayed ratio therefore
+*rises*. That is the honest cost of a standard procedure, not a defect.
+
+**That ratio is not the residual/HI number.** 82x is a 99th-percentile display
+scale at one channel; the 24x in Figures 1-3 is a median over $k$ of a power
+ratio. They measure different things and will never agree, so the label reads
+"the shared scale" rather than anything that looks like a physical ratio.
+
+**One claim did not survive the change, and it is worth flagging.** The
+frequency-structure split was quoted as drift $r_\text{var} = 0.380$,
+$r_\text{coh} = 3.14$ against raster $0.532$, $1.11$ — the basis for "the drift
+makes HI look like foreground" and for the Figure 6 caption's "visibly washed
+out". At common resolution on the interior those become:
+
+| | $r_\text{var}$ | $r_\text{coh}$ |
+|---|---|---|
+| drift | 0.380 → **0.721** | 3.14 → **2.61** |
+| raster | 0.532 → **0.776** | 1.11 → **1.04** |
+
+The drift's apparent loss of frequency-varying structure was largely the
+small-scale structure the reconvolution removes from *both* cubes. On matched
+resolution the two strategies retain nearly the same varying fraction (0.72 vs
+0.78), and the mechanism rests on the coherent term instead: the drift still
+inflates the frequency-*constant* part 2.6x, and a foreground filter is built
+to delete exactly that. The headline is untouched — residual/HI is 347x drift
+against 24x raster, and both of those are already common-resolution numbers —
+but Figure 4 and its subtitle still quote 0.38/3.14 from the as-run cubes and
+need the same treatment before the paper uses them.
+

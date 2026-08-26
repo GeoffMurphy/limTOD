@@ -279,25 +279,35 @@ def fig_residual_vs_modes(exp, text=None):
 # Figure 3 -- the ablation
 # ---------------------------------------------------------------------------
 
-def fig_ablation(abl, text=None):
+def fig_ablation(abl, text=None, tag="cr_"):
+    """`tag` selects the convention: "cr_" (common resolution, interior pixels,
+    matching figure 2), "int_" (as run, interior pixels) or "" (as run, full
+    patch -- the originally published numbers). Older result files hold only
+    the "" keys, so fall back to those rather than raising."""
+    if f"drift_{tag}p_hi" not in abl:
+        print(f"!! ablation results predate the '{tag}' variant -- "
+              f"using as-run full-patch keys", flush=True)
+        tag = ""
     nmodes = [int(n) for n in abl["nmodes_grid"]]
-    arms = [("floor", DRIFT, "Beam + prior floor (noiseless data)", "-"),
-            ("total", INK, "Full data (floor + 1/f + white)", "none"),
-            ("noiseonly", THIRD, "Noise alone (1/f + white)", "-")]
+    # key, colour, label, linestyle, marker, markersize -- one marker per line
+    # so the three arms stay separable in greyscale and for CVD readers.
+    arms = [("floor", DRIFT, "Beam + prior floor (noiseless data)", "-", "o", 5),
+            ("total", INK, "Full data (floor + 1/f + white)", "none", "x", 9),
+            ("noiseonly", THIRD, "Noise alone (1/f + white)", "-", "^", 6)]
     fig, axes = plt.subplots(1, 2, figsize=_figsize("hi_ablation", (11.6, 4.9)), sharey=True)
 
     for ax, s in zip(axes, ("drift", "raster")):
         _tidy(ax)
-        p_hi = abl[f"{s}_p_hi"]
-        for arm, colour, label, ls in arms:
-            med = [np.median(np.sqrt(abl[f"{s}_{arm}_{nm}"] / p_hi))
+        p_hi = abl[f"{s}_{tag}p_hi"]
+        for arm, colour, label, ls, mk, ms in arms:
+            med = [np.median(np.sqrt(abl[f"{s}_{tag}{arm}_{nm}"] / p_hi))
                    for nm in nmodes]
             if arm == "total":
-                # Open rings on top of `floor`: the point is that they coincide.
-                ax.plot(nmodes, med, ls="none", marker="o", ms=9,
+                # Markers only, over `floor`: the point is that they coincide.
+                ax.plot(nmodes, med, ls="none", marker=mk, ms=ms,
                         mfc="none", mec=colour, mew=1.6, zorder=4)
             else:
-                ax.plot(nmodes, med, color=colour, ls=ls, marker="o", ms=5,
+                ax.plot(nmodes, med, color=colour, ls=ls, marker=mk, ms=ms,
                         mfc=SURFACE, mew=1.8, zorder=3)
         ax.axhline(1.0, color=INK, lw=1.4, zorder=2)
         ax.set_yscale("log")
@@ -312,18 +322,18 @@ def fig_ablation(abl, text=None):
     # Figure-level and horizontal: inside either panel it collides with the
     # noise curve or the HI-level line.
     fig.legend(handles=[Line2D([], [], color=c, ls=(ls if ls != "none" else "none"),
-                               marker="o", ms=(9 if a == "total" else 5),
+                               marker=mk, ms=ms,
                                mfc=("none" if a == "total" else SURFACE),
                                mec=c, mew=1.6, lw=(0 if ls == "none" else 2),
                                label=lab)
-                        for a, c, lab, ls in arms],
+                        for a, c, lab, ls, mk, ms in arms],
                loc="upper left", bbox_to_anchor=(0.045, 0.90), ncols=3,
                handlelength=2.2, columnspacing=2.4)
 
     _title(fig, "The blocker is the floor, not the noise",
-             "Noiseless and full data coincide to 0.2% in power — the rings sit "
-             "on the line. Noise alone is ~38$\\times$ below the floor, so it is "
-             "irrelevant to HI recovery.",
+             "Noiseless and full data track each other to a few per cent — the "
+             "rings sit on the line. Noise alone is 10–50$\\times$ below the "
+             "floor, so it is irrelevant to HI recovery.",
            x=0.045, y_title=1.03, y_sub=0.965, override=text)
     fig.tight_layout(rect=(0, 0, 1, 0.84))
     return _save(fig, "hi_ablation")
@@ -435,6 +445,25 @@ def _project(values, pix, nside, reso, xsize, rot):
                        return_projected_map=True)
 
 
+def _data_window(img, extent, pad=1.0):
+    """(xlim, ylim) enclosing the observed pixels, with a small margin."""
+    good = np.isfinite(img) & (img != hp_unseen())
+    rows = np.flatnonzero(good.any(axis=1))
+    cols = np.flatnonzero(good.any(axis=0))
+    if not len(rows) or not len(cols):
+        return (extent[0], extent[1]), (extent[2], extent[3])
+    x0, x1, y0, y1 = extent
+    dx = (x1 - x0) / img.shape[1]
+    dy = (y1 - y0) / img.shape[0]
+    return ((x0 + dx * cols[0] - pad, x0 + dx * (cols[-1] + 1) + pad),
+            (y0 + dy * rows[0] - pad, y0 + dy * (rows[-1] + 1) + pad))
+
+
+def hp_unseen():
+    import healpy as hp
+    return hp.UNSEEN
+
+
 def _mapshow(ax, img, cmap, vmin, vmax, title, extent):
     im = ax.imshow(img, origin="lower", cmap=cmap, vmin=vmin, vmax=vmax,
                    extent=extent, interpolation="nearest")
@@ -509,16 +538,34 @@ def fig_patch_maps(exp, nside=64, channel=None, text=None):
     return _save(fig, "hi_patch_maps")
 
 
-def fig_hi_maps(exp, nside=64, nmodes=4, text=None):
+def fig_hi_maps(exp, nside=64, nmodes=4, text=None, variant="cr_"):
     """Figure 6 -- the HI itself, in the map domain.
 
     The frequency mean is removed from every panel. That is deliberate: the
     frequency-*varying* part is the HI a survey can actually use, and it is the
     part the drift loses (0.38x, while inflating the coherent part 3.14x). Raw
     channel maps would show the drift looking healthy for the wrong reason.
+
+    `variant="cr_"` reconvolves to common resolution and keeps the 119 interior
+    pixels, matching every quantitative figure; `"as_run"` is the full 277-pixel
+    patch at native per-channel resolution, as first published. Each panel is a
+    single channel, so three of the four are internally consistent either way --
+    but the cleaned panel is not, because PCA ran *across* frequency, and on
+    as-run data it shows a residual the current pipeline no longer produces.
+
+    Reconvolving costs a factor ~3 in true HI amplitude (0.699 -> 0.223 uK at
+    the 99th percentile): the signal is small-scale, so smoothing to the widest
+    beam in the band eats most of it while the residual only falls ~1.8x. The
+    colour-scale ratio therefore *rises*, 51x -> 82x. That is the real cost of
+    a standard procedure, not a defect in the figure.
+
+    That ratio is a 99th-percentile *display* scale at one channel, and is not
+    the residual/HI ratio of Figures 1-3 (a median over k of a power ratio,
+    24x for the raster). They measure different things and will never agree --
+    hence the label says "the shared scale", not a physical ratio.
     """
     div, _ = _cmaps()
-    common = exp["common"]
+    common = np.asarray(exp["common"])
     freqs = exp["freqs"]
     ch = len(freqs) // 2
     rot = (158.30, 9.375)
@@ -526,36 +573,71 @@ def fig_hi_maps(exp, nside=64, nmodes=4, text=None):
     half = reso * xsize / 60.0 / 2.0
     extent = (-half, half, -half, half)
 
+    if variant in ("cr_", "cr"):
+        interior = np.asarray(exp["interior"], bool)
+        pix = common[interior]
+        def prep(cube):
+            return A.common_resolution(np.asarray(cube), freqs, common,
+                                       nside)[:, interior]
+    else:
+        pix = common
+        def prep(cube):
+            return np.asarray(cube)
+
     def demean(c):
         return c - c.mean(axis=0, keepdims=True)
 
-    true = demean(exp["drift_hi_true"])[ch] * 1e3          # uK
-    dmap = demean(exp["drift_hi_mapmade"])[ch] * 1e3
-    rmap = demean(exp["raster_hi_mapmade"])[ch] * 1e3
-    clean = demean(A.pca_clean(exp["raster_data_cube"], nmodes))[ch] * 1e3
+    true = demean(prep(exp["drift_hi_true"]))[ch] * 1e3          # uK
+    dmap = demean(prep(exp["drift_hi_mapmade"]))[ch] * 1e3
+    rmap = demean(prep(exp["raster_hi_mapmade"]))[ch] * 1e3
+    # Reconvolve first, then clean -- the order run_hi_experiment.py uses.
+    clean = demean(A.pca_clean(prep(exp["raster_data_cube"]), nmodes))[ch] * 1e3
 
     v = float(np.nanpercentile(np.abs(true), 99))
-    fig, axes = plt.subplots(1, 4, figsize=_figsize("hi_maps", (16.2, 3.9)), layout="constrained")
+    v_clean = float(np.nanpercentile(np.abs(clean), 99))
+    # Explicit gridspec rather than plt.subplots: a colorbar attached to one
+    # panel steals space from that panel alone, leaving the 2x2 visibly
+    # unequal. Dedicated cells for both bars keep the four panels identical.
+    fig = plt.figure(figsize=_figsize("hi_maps", (9.6, 5.9)),
+                     layout="constrained")
+    gs = fig.add_gridspec(3, 3, height_ratios=[1, 1, 0.055],
+                          width_ratios=[1, 1, 0.035])
+    flat = [fig.add_subplot(gs[r, c]) for r in (0, 1) for c in (0, 1)]
+    cax_shared = fig.add_subplot(gs[0:2, 2])
+    cax_clean = fig.add_subplot(gs[2, 1])
     panels = [(true, "True HI", v), (dmap, "Drift, map-made", v),
               (rmap, "Raster, map-made", v),
-              (clean, f"Raster, cleaned data ({nmodes} modes)",
-               float(np.nanpercentile(np.abs(clean), 99)))]
+              (clean, f"Raster, cleaned data ({nmodes} modes)", v_clean)]
     ims = []
-    for ax, (vals, title, vv) in zip(axes, panels):
-        img = _project(vals, common, nside, reso, xsize, rot)
+    win = None
+    for ax, (vals, title, vv) in zip(flat, panels):
+        img = _project(vals, pix, nside, reso, xsize, rot)
         ims.append(_mapshow(ax, img, div, -vv, vv, title, extent))
-        ax.set_ylim(-9, 9)
+        # Size the window to the patch rather than fixing it: the interior is
+        # much shorter than the full common patch, and dead paper around it
+        # doubles in a 2x2 grid.
+        win = win or _data_window(img, extent)
+        ax.set_xlim(*win[0]); ax.set_ylim(*win[1])
+    # Axis furniture only on the outer edges of the grid.
+    for ax in flat[:2]:
+        ax.set_xlabel("")
+        ax.tick_params(labelbottom=False)   # bottom row carries the axis
+    for ax in (flat[1], flat[3]):
+        ax.tick_params(labelleft=False)
+    for ax in (flat[0], flat[2]):
+        ax.set_ylabel("offset  [deg]", fontsize=8.5)
     # One bar for the three panels that share a scale, one for the outlier --
-    # four identical bars would imply four different scales.
-    cb = fig.colorbar(ims[0], ax=list(axes[:3]), shrink=0.72, aspect=16,
-                      pad=0.015)
+    # four identical bars would imply four different scales. The odd one is
+    # horizontal under its own panel so the split reads before the numbers do.
+    cb = fig.colorbar(ims[0], cax=cax_shared)
     cb.set_label("$\\delta T_b$  [$\\mu$K]", fontsize=8.5)
     cb.ax.tick_params(labelsize=8)
-    cb2 = fig.colorbar(ims[3], ax=axes[3], shrink=0.72, aspect=16, pad=0.03)
-    cb2.set_label("$\\delta T_b$  [$\\mu$K] — 50$\\times$ the scale at left",
-                  fontsize=8.5)
+    cb2 = fig.colorbar(ims[3], cax=cax_clean, orientation="horizontal")
+    # Derived, not hardcoded: the ratio moves with `nmodes` (51x at 4 modes,
+    # 186x at 2, 18x at 8), and a fixed "50x" would quietly go wrong.
+    cb2.set_label(f"$\\delta T_b$  [$\\mu$K] — {v_clean / v:.0f}$\\times$ "
+                  "the shared scale", fontsize=8.5)
     cb2.ax.tick_params(labelsize=8)
-    axes[0].set_ylabel("offset  [deg]", fontsize=8.5)
 
     _title(fig, "The HI in the map domain, and why you cannot see it",
              f"Channel {ch} ({freqs[ch]:.1f} MHz), frequency mean removed. First "

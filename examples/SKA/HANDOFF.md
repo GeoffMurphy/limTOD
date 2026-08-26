@@ -445,11 +445,22 @@ while *amplifying* the frequency-coherent part 3.14x — it projects HI onto a
 nearly frequency-constant subspace, which PCA then removes. Raster: 0.532 and
 1.11x. A plain rms ratio (0.924) hides this completely; do not quote it.
 
-**No HI is recoverable here, and it is the floor, not the noise.** Ablation:
-noiseless "floor" and full "total" agree to **0.2%** in power, while noise alone
-is ~38x below the floor. The blocker is entirely the beam + prior floor, whose
-frequency structure comes from the chromatic null space — not spectrally smooth,
-so PCA cannot touch it.
+**No HI is recoverable here, and it is the floor, not the noise.** Ablation
+(common-resolution, interior pixels, re-run 2026-08-26): noiseless "floor" and
+full "total" track each other to a few per cent in amplitude at every mode
+count, while noise alone sits **52x** (drift) / **10x** (raster) below the floor
+at 4 modes. The blocker is entirely the beam + prior floor, whose frequency
+structure comes from the chromatic null space — not spectrally smooth, so PCA
+cannot touch it.
+
+| 4 modes, common resolution | floor | total | noise alone |
+|---|---|---|---|
+| drift | 335.0x | 347.3x | 6.4x |
+| raster | 22.7x | 24.0x | 2.2x |
+
+The older "agree to 0.2%, noise ~38x below" was the un-reconvolved full-patch
+run, and the 0.2% compared the two *median* summary numbers rather than the
+per-k residuals (which differed by ~3% even then). Quote the table above.
 
 **Residual/HI, revised 2026-08-19** after adding the common-resolution
 reconvolution the pipeline had been missing (see below). Amplitude, median over
@@ -487,7 +498,7 @@ cached results):
 |---|---|
 | `hi_transfer_function.png` | T(k_par), drift vs raster, one panel per mode count, ±1σ over 20 mocks. The cross-linking result. |
 | `hi_residual_vs_modes.png` | residual/HI vs modes removed, log scale, k-range bars — never approaches 1. |
-| `hi_ablation.png` | floor vs total vs noise-only. Full-data rings sit *on* the floor line; noise is ~38x below. |
+| `hi_ablation.png` | floor vs total vs noise-only. Full-data rings sit *on* the floor line; noise is 10-50x below. Common resolution + interior pixels since 2026-08-26 (`fig_ablation(..., tag="cr_")`). |
 | `hi_frequency_structure.png` | radial power surviving the map-maker, plus the frequency-structure split that explains why the drift fails. |
 | `hi_patch_maps.png` | the GDSM field and the nested drift/raster/interior footprints. |
 | `hi_maps.png` | map domain: true HI, drift map-made, raster map-made, and the cleaned data on a 50x wider scale. |
@@ -573,21 +584,26 @@ The rest of the queue is the *improvement* work.
 
    (iii) GPR is still worth trying, but it does not deserve top billing.
 
-0d. **`hi_ablation` is still on the un-reconvolved, full-patch data.** Noticed
-   2026-08-26. `ska_hi_ablation.py` applies neither `common_resolution` nor the
-   interior mask, so figure 3 sits on a different scale from figure 2 and the
-   residual/HI table: ablation drift at 4 modes is 572.4x, which matches the
-   **as-run 277 px** column (570.6x), not the common-resolution 119 px one
-   (347.3x). The ablation's *conclusion* is unaffected -- it compares floor
-   against total against noise within one convention, and they agree to 0.2%
-   either way -- but the two figures should not be read side by side as they
-   stand, and the paper should not show both without saying so.
+0d. **DONE 2026-08-26: `hi_ablation` now runs at common resolution.**
+   `ska_hi_ablation.py` computes the interior mask and reconvolves each arm,
+   and stores all three conventions the way `run_hi_experiment.py` does --
+   `""` (as run, 277 px), `int_` (as run, 119 interior px) and `cr_` (common
+   resolution, 119 px). `fig_ablation` defaults to `tag="cr_"`, so figure 3 and
+   figure 2 are now on the same footing; it falls back to the as-run keys with
+   a warning if handed an older `.npz`.
 
-   Fixing it means adding `cr(...)` and the interior mask to
-   `ska_hi_ablation.py` (~5 min re-run), regenerating figure 3, and re-checking
-   the numbers quoted from it: "floor and total agree to 0.2%" and "noise alone
-   is ~38x below the floor" both appear in `ANALYSIS_LOG.md`, `HANDOFF.md` and
-   the paper skeleton.
+   Two checks worth keeping. The as-run column reproduces the previous run
+   exactly (drift 572.4x, raster 66.0x at 4 modes), so the solves are
+   untouched and only the post-processing changed. And the `cr_` "total" arm
+   agrees with the residual/HI table it should match: drift 347.3x vs 347.3x,
+   raster 24.0x vs 24.0x.
+
+   What the re-run changed in the *wording*, not the conclusion: the noise
+   floor separation is 52x (drift) / 10x (raster) in amplitude rather than
+   "~38x", and floor-vs-total agreement is "a few per cent", not 0.2%. The
+   ANALYSIS_LOG entry and `paper/main.tex` still carry the old phrasing and
+   were deliberately left alone -- the paper is being written by hand from
+   here.
 
 1. **Depth-matched raster done properly** — narrow the azimuth throw so the scan
    natively selects ~321 px, instead of the analytic noise scaling used above.

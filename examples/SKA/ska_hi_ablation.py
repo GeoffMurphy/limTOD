@@ -17,6 +17,12 @@ If ``floor`` and ``total`` agree, the noise is irrelevant to HI recovery and
 the blocker is structural. Results are saved k-resolved for every mode count so
 the figures can be drawn without re-solving.
 
+Each arm is stored under the three conventions ``run_hi_experiment.py`` uses --
+as-run full patch (no prefix), as-run interior pixels (``int_``), and
+common-resolution interior pixels (``cr_``). The ablation's *conclusion* holds
+under any of them, since the arms are compared within one convention, but the
+absolute residual/HI ratios are only comparable with figure 2 under ``cr_``.
+
     /home/geoff/gibbs_venv_312/bin/python ska_hi_ablation.py
 """
 
@@ -38,6 +44,7 @@ from ska_common import gdsm_equatorial_sky_model
 from ska_hi_mock import build_hi_cube, project_to_healpix
 
 ARMS = ("floor", "total", "noiseonly")
+MARGIN_DEG = 3.0
 
 
 def main():
@@ -49,7 +56,9 @@ def main():
     common = A.common_patch([ops[s] for s in ("drift", "raster")])
     union = np.unique(np.concatenate(
         [np.asarray(m.pixel_indices) for s in ops for m in ops[s]]))
-    print(f"common patch {len(common)} px, dr {dr:.2f} Mpc", flush=True)
+    interior = A.interior_mask(common, X.NSIDE, margin_deg=MARGIN_DEG)
+    print(f"common patch {len(common)} px, interior {interior.sum()} px, "
+          f"dr {dr:.2f} Mpc", flush=True)
 
     cube, box = build_hi_cube(cfg, union, verbose=False)
     hi_u = project_to_healpix(cube, box, cfg, union)
@@ -57,7 +66,8 @@ def main():
     fg = {f: gdsm_equatorial_sky_model(freq=f, nside=X.NSIDE) for f in freqs}
 
     out = dict(nmodes_grid=np.asarray(X.__dict__.get("NMODES_GRID",
-                                                     (1, 2, 3, 4, 6, 8, 10))))
+                                                     (1, 2, 3, 4, 6, 8, 10))),
+               common=common, interior=interior, margin_deg=MARGIN_DEG)
     for strategy in ("drift", "raster"):
         g, w = X.replay_noise(strategy)
         t0 = time.time()
@@ -92,18 +102,37 @@ def main():
                       f"({time.time() - t0:.0f} s)", flush=True)
 
         hi_mm = np.asarray(hi_mm)
-        k, p_hi = A.pk_par(hi_mm, dr_mpc=dr)
-        out[f"{strategy}_k"] = k
-        out[f"{strategy}_p_hi"] = p_hi
-        for nm in out["nmodes_grid"]:
-            for arm in ARMS:
-                cleaned = A.pca_clean(np.asarray(cubes[arm]), int(nm))
-                _, p = A.pk_par(cleaned, dr_mpc=dr)
-                out[f"{strategy}_{arm}_{nm}"] = p
-            print(f"  [{strategy}] nmodes={nm}: "
-                  + ", ".join(
-                      f"{arm} {np.sqrt(np.median(out[f'{strategy}_{arm}_{nm}'] / p_hi)):.1f}x"
-                      for arm in ARMS), flush=True)
+        cubes = {a: np.asarray(c) for a, c in cubes.items()}
+
+        # The same three conventions run_hi_experiment.py stores, so figure 3
+        # can be read alongside figure 2 instead of against it:
+        #   ""     as run, full common patch  (the originally published numbers)
+        #   "int_" as run, interior pixels    (the like-for-like control)
+        #   "cr_"  common resolution, interior pixels
+        def cr(c):
+            return A.common_resolution(c, freqs, common, X.NSIDE)
+        print("  reconvolving to common resolution...", flush=True)
+        cr_cubes = {a: cr(c) for a, c in cubes.items()}
+        cr_hi = cr(hi_mm)
+        variants = {
+            "": (cubes, hi_mm, slice(None)),
+            "int_": (cubes, hi_mm, interior),
+            "cr_": (cr_cubes, cr_hi, interior),
+        }
+
+        for tag, (arm_cubes, hi_ref, sel_pix) in variants.items():
+            k, p_hi = A.pk_par(hi_ref[:, sel_pix], dr_mpc=dr)
+            out[f"{strategy}_{tag}k"] = k
+            out[f"{strategy}_{tag}p_hi"] = p_hi
+            for nm in out["nmodes_grid"]:
+                for arm in ARMS:
+                    cleaned = A.pca_clean(arm_cubes[arm][:, sel_pix], int(nm))
+                    _, p = A.pk_par(cleaned, dr_mpc=dr)
+                    out[f"{strategy}_{tag}{arm}_{nm}"] = p
+                print(f"  [{strategy} {tag or 'as-run':6s}] nmodes={nm}: "
+                      + ", ".join(
+                          f"{arm} {np.sqrt(np.median(out[f'{strategy}_{tag}{arm}_{nm}'] / p_hi)):.1f}x"
+                          for arm in ARMS), flush=True)
 
     os.makedirs(os.path.join(_HERE, "results"), exist_ok=True)
     path = os.path.join(_HERE, "results",
