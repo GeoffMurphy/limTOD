@@ -526,9 +526,52 @@ The rest of the queue is the *improvement* work.
    the floor down with more crossing angles and check whether the residual/HI
    ratio follows; (c) the 006 raster is not depth-matched, which does not
    affect T(k) but does affect the residual comparison — fold in item 1 below.
-   Also worth testing GPR or a foreground filter that does not assume spectral
-   smoothness, since the blocker is a *non-smooth* floor that PCA is structurally
-   unable to remove.
+
+0c. **Would a different cleaning basis help? Measured 2026-08-25: no.**
+   `ska_hi_rank.py`. Modes of the channel-channel covariance needed to carry
+   90/99/99.9% of the variance:
+
+   | | 90% | 99% | 99.9% | lambda_10/lambda_1 |
+   |---|---|---|---|---|
+   | GDSM foreground | 1 | 1 | 1 | 2.6e-17 |
+   | floor, drift | 2 | 6 | 10 | 6.3e-4 |
+   | floor, raster | 1 | 2 | 5 | 5.7e-5 |
+
+   Two things follow. **The foreground is rank 1** over this 50 MHz block — one
+   PCA mode removes essentially all of it, and the ablation agrees (after 1 mode
+   the drift residual is already 896x the HI). So from mode 2 onward the filter
+   is not cleaning foregrounds at all, it is fighting the instrumental floor.
+   And **the floor is also low-rank**, so a subspace method *can* capture it.
+
+   ICA, GMCA, NMF and kernel PCA all remove a rank-N subspace and differ only in
+   how they pick it — those differences matter for a mixture of astrophysical
+   components with different statistics, which is not what this is. Polynomial
+   modes should be *worse*: they impose smoothness the floor does not have,
+   where PCA at least adapts. Cheap to falsify — one line in
+   `ska_hi_analysis.pca_clean`, since fastbox ships `ica_filter`, `nmf_filter`,
+   `kernel_pca_filter` and `gpr_filter` — so worth an afternoon as a null
+   result, not a research direction.
+
+   **Correction.** An earlier version of this item put GPR first, on the grounds
+   that the blocker was a *non-smooth* floor PCA could not represent. The rank
+   measurement falsifies that: the floor is low-rank enough for PCA. The blocker
+   is that the floor's subspace **overlaps the HI's** — both are the smooth
+   low-k_par modes — so removing 6-10 modes costs 83-94% of the HI at low k
+   (T = 0.056-0.17 at 10 modes). No basis escapes an overlap.
+
+   What follows instead, in order:
+
+   (i) **Model the floor rather than filter it.** The floor is `(I - WA)s`, and
+   in simulation `W` and `A` are known exactly. Compute its covariance and fold
+   it into the noise model instead of blindly projecting. Blind separation
+   throws away the one real advantage a simulation study has — that the
+   instrument is known.
+
+   (ii) **Shrink the floor with geometry.** The raster's floor is already rank 2
+   against the drift's 6: more measured modes give a more compressible floor.
+   The same lever as item 0, now visible in the rank.
+
+   (iii) GPR is still worth trying, but it does not deserve top billing.
 
 1. **Depth-matched raster done properly** — narrow the azimuth throw so the scan
    natively selects ~321 px, instead of the analytic noise scaling used above.

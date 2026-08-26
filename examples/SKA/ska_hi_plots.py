@@ -69,7 +69,9 @@ def _load():
         RESDIR, "hi_experiment_f350_400_nc32_ns64.npz"))
     abl_path = os.path.join(RESDIR, "hi_ablation_f350_400_nc32_ns64.npz")
     abl = np.load(abl_path) if os.path.exists(abl_path) else None
-    return exp, abl
+    rk_path = os.path.join(RESDIR, "hi_rank_f350_400_nc32_ns64.npz")
+    rk = np.load(rk_path) if os.path.exists(rk_path) else None
+    return exp, abl, rk
 
 
 # ---------------------------------------------------------------------------
@@ -523,15 +525,77 @@ def fig_hi_maps(exp, nside=64, nmodes=4):
     return out
 
 
+# ---------------------------------------------------------------------------
+# Figure 7 -- how compressible is each component?
+# ---------------------------------------------------------------------------
+
+def fig_rank(rank, nshow=20):
+    """Eigenspectra of the channel-channel covariance.
+
+    The question this answers is whether swapping PCA for ICA/GMCA/NMF could
+    help. All of them remove a rank-N subspace, so what matters is how many
+    modes each component actually occupies.
+    """
+    fig, axes = plt.subplots(1, 2, figsize=(12.4, 4.8), layout="constrained")
+    series = [("drift_w_fg", INK, "GDSM foreground", "-"),
+              ("drift_w_floor", DRIFT, "beam + prior floor, drift", "-"),
+              ("raster_w_floor", RASTER, "beam + prior floor, raster", "-"),
+              ("drift_w_hi", THIRD, "HI (map-made)", "-")]
+
+    ax = _tidy(axes[0])
+    for key, colour, label, ls in series:
+        w = rank[key][:nshow]
+        ax.plot(np.arange(1, len(w) + 1), np.maximum(w, 1e-18), color=colour,
+                ls=ls, marker="o", ms=3.5, mfc=SURFACE, mew=1.2, label=label)
+    ax.set_yscale("log")
+    ax.set_ylim(1e-18, 3)
+    ax.set_xlabel("eigenmode of the channel-channel covariance")
+    ax.set_ylabel("$\\lambda_i\\,/\\,\\lambda_1$")
+    ax.set_title("Eigenspectrum", color=INK, pad=6)
+    ax.legend(loc="center right", fontsize=8.4)  # lower left sits on the GDSM line
+
+    ax = _tidy(axes[1])
+    for key, colour, label, ls in series:
+        w = rank[key]
+        c = np.cumsum(w) / w.sum()
+        ax.plot(np.arange(1, min(nshow, len(c)) + 1), c[:nshow], color=colour,
+                ls=ls, marker="o", ms=3.5, mfc=SURFACE, mew=1.2)
+    for frac, lbl in ((0.90, "90%"), (0.99, "99%")):
+        ax.axhline(frac, color=BASELINE, lw=1.0, ls=(0, (4, 3)))
+        ax.annotate(lbl, (nshow, frac), textcoords="offset points",
+                    xytext=(-2, 4), ha="right", fontsize=8.2, color=MUTED)
+    ax.set_ylim(0, 1.04)
+    ax.set_xlabel("eigenmodes retained")
+    ax.set_ylabel("cumulative fraction of variance")
+    ax.set_title("How many modes each component occupies", color=INK, pad=6)
+
+    fig.suptitle("A different cleaning basis cannot help: the floor is already low-rank",
+                 color=INK, fontsize=13, fontweight="semibold", x=0.01,
+                 ha="left", y=1.10)
+    fig.text(0.01, 1.02,
+             "The foreground is rank 1 — one mode removes it. The floor needs 6 "
+             "(drift) or 2 (raster). The HI needs 23$-$25 of 32: it is the one "
+             "component that is not compressible.",
+             color=INK2, fontsize=9.4, ha="left")
+    out = os.path.join(FIGDIR, "hi_rank.png")
+    fig.savefig(out, bbox_inches="tight")
+    plt.close(fig)
+    return out
+
+
 def main():
     os.makedirs(FIGDIR, exist_ok=True)
-    exp, abl = _load()
+    exp, abl, rk = _load()
     made = [fig_transfer_function(exp), fig_residual_vs_modes(exp),
             fig_frequency_structure(exp), fig_patch_maps(exp), fig_hi_maps(exp)]
     if abl is not None:
         made.insert(2, fig_ablation(abl))
     else:
         print("!! ablation results missing -- run ska_hi_ablation.py", flush=True)
+    if rk is not None:
+        made.append(fig_rank(rk))
+    else:
+        print("!! rank results missing -- run ska_hi_rank.py", flush=True)
     for m in made:
         print(f"wrote {os.path.relpath(m, _HERE)}", flush=True)
 

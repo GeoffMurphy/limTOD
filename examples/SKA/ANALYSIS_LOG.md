@@ -560,6 +560,74 @@ configuration is a separate experiment that has not been run. Specific MeerKLASS
 survey parameters are deliberately not quoted here — check them before putting
 any in the write-up.
 
+### Would a different cleaning basis help? (2026-08-25)
+
+**Question.** If PCA is not removing the floor, would ICA, GMCA, NMF, a
+polynomial expansion or GPR do better? This is answerable rather than a matter
+of taste, because every one of those except GPR removes a **rank-N subspace** of
+the channel-channel covariance and they differ only in how they choose it. So
+the measurement to make is how many modes each component actually occupies.
+
+**Method.** `ska_hi_rank.py`. Eigen-decompose the channel-channel covariance of
+three cubes on the common patch: the GDSM truth, the beam + prior floor (the
+residual of a *noiseless* solve, i.e. sky the strategy never measured), and the
+map-made HI response. Modes needed to carry a given fraction of the variance:
+
+| | 90% | 99% | 99.9% | $\lambda_{10}/\lambda_1$ |
+|---|---|---|---|---|
+| GDSM foreground | **1** | **1** | **1** | 2.6e-17 |
+| floor, drift | 2 | 6 | 10 | 6.3e-4 |
+| floor, raster | 1 | 2 | 5 | 5.7e-5 |
+| **HI, drift** | **14** | **23** | **28** | — |
+| **HI, raster** | **17** | **25** | **30** | — |
+
+<div class="figblock">
+<img class="figure" src="figures/hi_rank.png" alt="Eigenspectra of foreground, floor and HI">
+<p class="caption"><em>Figure 7 — left: eigenspectrum of the channel-channel covariance, normalised to the first mode. Right: cumulative variance. The foreground falls off a cliff after mode 1; the floors decay fast; the HI decays slowly and is still climbing at mode 20.</em></p>
+</div>
+
+**Result 1: the foreground is rank 1.** Over a 50 MHz block the GDSM sky is a
+single spectral shape — $\lambda_{10}/\lambda_1 = 3\times10^{-17}$. One PCA mode
+removes essentially all of it, and the ablation agrees: after **1** mode the
+drift residual is already 896x the HI. **So from mode 2 onward the filter is not
+cleaning foregrounds at all — it is fighting the instrumental floor.**
+"Foreground cleaning" is a misnomer for what this pipeline does.
+
+**Result 2: the HI is the incompressible component.** It needs 23-25 of 32 modes
+for 99%, against 2-6 for the floor. That is expected — it is a stochastic field
+with a short line-of-sight correlation length — but it is the fact that makes
+the whole thing work at all: floor and signal *are* distinguishable by rank.
+
+**Result 3: and yet removing the floor still costs the signal.** Mean cosine of
+the principal angles between the leading rank-6 subspaces of floor and HI is
+0.597 (drift) and 0.737 (raster) — angles of 53 and 42 degrees, far from
+orthogonal. The floor's few modes are the smooth ones, and while the HI's power
+is spread over ~25 modes, its **low-$k_\parallel$** power sits in the same smooth
+few. That is exactly the measured $T(k)$ shape: 0.06 at the lowest
+$k_\parallel$ rising to 0.95 at the highest. (Read the rank-6 overlap with
+care for the raster, whose floor is rank 2 — modes 3-6 there carry almost no
+variance, so the comparison is noisy.)
+
+**What it changed.** The answer to the basis question is **no**. ICA, GMCA, NMF
+and kernel PCA would find much the same subspace; the differences between them
+matter for a mixture of astrophysical components with different statistics,
+which is not what this is — one rank-1 sky plus a deterministic instrumental
+floor. Polynomial modes should be *worse*, since they impose a smoothness the
+floor does not have where PCA at least adapts. All are cheap to falsify (one
+line in `ska_hi_analysis.pca_clean`; fastbox ships `ica_filter`, `nmf_filter`,
+`kernel_pca_filter`, `gpr_filter`), so worth an afternoon as a null result.
+
+**Correction to the queued work.** `HANDOFF.md` previously put GPR first, on the
+reasoning that the blocker was a *non-smooth* floor PCA could not represent.
+This measurement falsifies that: the floor is low-rank and PCA can represent it
+fine. The blocker is the **overlap** with the signal, which no choice of basis
+escapes. What follows instead: (i) **model** the floor rather than filter it —
+it is $(I - WA)s$ and both $W$ and $A$ are known exactly in simulation, so its
+covariance can go into the noise model rather than being blindly projected out;
+(ii) **shrink** it with geometry — the raster's floor is already rank 2 against
+the drift's 6, so more measured modes give a more compressible floor. GPR stays
+on the list but not at the top.
+
 ### Position after 006 — consolidate before improving
 
 Stated 2026-08-18, at the end of the session that produced the above. The
