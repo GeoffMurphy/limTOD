@@ -415,7 +415,102 @@ high by <10%.
 
 ---
 
+## HI signal recovery (experiment 006, added 2026-08-18)
+
+The first experiment in the series containing a 21 cm signal. 350-400 MHz, 32
+contiguous channels, nside 64, both strategies, on the 277-px patch common to
+every channel. HI from fastbox (Tb 0.518 mK, b_HI 1.559 at z_eff 2.80),
+projected onto HEALPix by 3D lightcone interpolation. Code in
+`ska_hi_mock.py`, `ska_hi_experiment.py`, `ska_hi_analysis.py`,
+`run_hi_experiment.py`; results in
+`results/hi_experiment_f350_400_nc32_ns64.npz`. Full reasoning in
+`ANALYSIS_LOG.md`.
+
+**Cross-linking improves HI recovery at every scale.** T(k_par), fraction of
+map-made HI surviving the clean, 20 mocks:
+
+| k_par | 0.012 | 0.024 | 0.036 | 0.048 | plateau |
+|---|---|---|---|---|---|
+| drift, 4 modes | 0.228 | 0.469 | 0.732 | 0.854 | ~0.90 |
+| raster, 4 modes | 0.449 | 0.822 | 0.965 | 0.961 | ~0.96 |
+| drift, 8 modes | 0.095 | 0.138 | 0.256 | 0.451 | ~0.80 |
+| raster, 8 modes | 0.034 | 0.142 | 0.437 | 0.769 | ~0.94 |
+
+T(k) is depth-independent (each arm's ratio against its own injected response),
+so this is fair despite the raster being 2.3x shallower on the shared patch.
+
+**The drift map-maker makes HI look like foreground.** Splitting the HI by
+frequency structure, the drift keeps only 38% of the frequency-*varying* part
+while *amplifying* the frequency-coherent part 3.14x — it projects HI onto a
+nearly frequency-constant subspace, which PCA then removes. Raster: 0.532 and
+1.11x. A plain rms ratio (0.924) hides this completely; do not quote it.
+
+**No HI is recoverable here, and it is the floor, not the noise.** Ablation:
+noiseless "floor" and full "total" agree to **0.2%** in power, while noise alone
+is ~38x below the floor. The blocker is entirely the beam + prior floor, whose
+frequency structure comes from the chromatic null space — not spectrally smooth,
+so PCA cannot touch it.
+
+**Residual/HI, revised 2026-08-19** after adding the common-resolution
+reconvolution the pipeline had been missing (see below). Amplitude, median over
+k, at 4 modes removed:
+
+| | as run, 277 px | as run, 119 interior px | **common resolution, 119 px** |
+|---|---|---|---|
+| drift | 570.6x | 322.1x | 347.3x |
+| raster | 65.9x | 48.5x | **24.0x** |
+| cross-linking gain | 8.7x | 6.6x | **14.4x** |
+
+Two corrections are folded in here and should not be confused. Restricting to
+pixels >3 deg from the patch edge (needed because the reconvolution smooths a
+zero-padded patch) removes an edge inflation that was present in the original
+full-patch numbers. The reconvolution itself then **halves the raster** and does
+essentially nothing for the drift, which has too few measured modes for a
+cleaner beam to help. At 10 modes the raster reaches **13.4x**. Net: the
+cross-linking case is considerably stronger than first published.
+
+**Do not read `p_corrected_*` from the results file as a recovered spectrum.**
+With the residual 13-350x the signal the cross-power estimator has no signal in
+it. `residual_over_hi_*` is stored alongside to make that explicit. The transfer
+function itself is unaffected — injection is differential and mock-averaged.
+
+---
+
 ## Queued next
+
+**DONE 2026-08-18: experiment 006 is plotted.** `ska_hi_plots.py` draws four
+figures into `figures/` (gitignored, regenerate with
+`/home/geoff/gibbs_venv_312/bin/python ska_hi_plots.py`, seconds — it only reads
+cached results):
+
+| figure | what it shows |
+|---|---|
+| `hi_transfer_function.png` | T(k_par), drift vs raster, one panel per mode count, ±1σ over 20 mocks. The cross-linking result. |
+| `hi_residual_vs_modes.png` | residual/HI vs modes removed, log scale, k-range bars — never approaches 1. |
+| `hi_ablation.png` | floor vs total vs noise-only. Full-data rings sit *on* the floor line; noise is ~38x below. |
+| `hi_frequency_structure.png` | radial power surviving the map-maker, plus the frequency-structure split that explains why the drift fails. |
+| `hi_patch_maps.png` | the GDSM field and the nested drift/raster/interior footprints. |
+| `hi_maps.png` | map domain: true HI, drift map-made, raster map-made, and the cleaned data on a 50x wider scale. |
+
+Two notes for whoever revises them. A single-line-of-sight panel was tried for
+the fourth figure and **abandoned** — the traces are too noisy to read "flat in
+frequency" off by eye; the two rms ratios state it far better. The map-domain
+panel was skipped at first on the grounds that the cleaned map is pure residual;
+**that judgement was wrong and it was added 2026-08-19** — putting the cleaned
+panel beside the others on its own 50x colour scale is the clearest single
+statement of the result in the set.
+
+Map colour rules, since healpy's defaults break them: signed fields (HI,
+residuals) use the diverging blue-grey-red pair so zero recedes and sign reads;
+positive-definite temperature uses the one-hue sequential ramp; footprint
+membership uses categorical slots. Never a rainbow — it would encode magnitude
+as hue and invent structure.
+
+Colours are the validated categorical slots (blue drift, orange raster, aqua for
+the third ablation arm) — those three clear all-pairs CVD separation, and every
+series is legended or directly labelled so identity never rests on hue.
+
+The rest of the queue is the *improvement* work.
 
 0. **Raise the number of measured modes** — this is now the headline lever,
    replacing the nside re-run. The drift measures 17, the scan 34; everything
@@ -423,6 +518,18 @@ high by <10%.
    whereas more integration time on the same tracks does not. **Experiment 005
    adds a third lever: frequency** — 55 modes at 1050 MHz on the same tracks,
    at the price of a 2.3× smaller patch.
+0b. **Follow-ups from experiment 006 (HI).** The negative result is bounded by
+   mode count, so the levers are the same ones: (a) repeat at 675-725 MHz,
+   where k_perp reaches 0.053 rather than 0.016 so T(k) becomes a genuine 2D
+   measurement and the null space is less pathological — needs nside 128 and
+   the elevation ladder is marginal there (2 deg steps = 1.0 FWHM); (b) push
+   the floor down with more crossing angles and check whether the residual/HI
+   ratio follows; (c) the 006 raster is not depth-matched, which does not
+   affect T(k) but does affect the residual comparison — fold in item 1 below.
+   Also worth testing GPR or a foreground filter that does not assume spectral
+   smoothness, since the blocker is a *non-smooth* floor that PCA is structurally
+   unable to remove.
+
 1. **Depth-matched raster done properly** — narrow the azimuth throw so the scan
    natively selects ~321 px, instead of the analytic noise scaling used above.
 2. **More crossing angles** — currently only two (~75° apart). More elevations

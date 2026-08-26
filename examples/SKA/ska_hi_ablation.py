@@ -1,0 +1,117 @@
+"""Experiment 006 ablation: what is actually blocking HI recovery?
+
+The post-cleaning residual sits 50-500x above the HI. This asks whether that is
+the beam + prior floor or the noise, by re-solving the same operators with
+components removed -- the same RNG-replay trick the rest of the series uses to
+split residuals, applied here to the cleaned cube instead.
+
+Three arms, all with the HI injected:
+
+* ``floor``     -- noiseless data. The residual is then purely sky the strategy
+                   never measured, filled by the prior: the beam + prior floor.
+* ``total``     -- the full data, with 1/f gain and white noise.
+* ``noiseonly`` -- the noise contribution alone, as the difference between a
+                   noisy and a noiseless solve of the foreground.
+
+If ``floor`` and ``total`` agree, the noise is irrelevant to HI recovery and
+the blocker is structural. Results are saved k-resolved for every mode count so
+the figures can be drawn without re-solving.
+
+    /home/geoff/gibbs_venv_312/bin/python ska_hi_ablation.py
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+import time
+
+import numpy as np
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+
+import ska_hi_experiment as X
+import ska_hi_analysis as A
+from ska_common import gdsm_equatorial_sky_model
+from ska_hi_mock import build_hi_cube, project_to_healpix
+
+ARMS = ("floor", "total", "noiseonly")
+
+
+def main():
+    freqs = X.channel_freqs()
+    cfg = X.band_config()
+    dr = A.channel_dr_mpc(cfg)
+
+    ops = {s: A.channel_operators(s) for s in ("drift", "raster")}
+    common = A.common_patch([ops[s] for s in ("drift", "raster")])
+    union = np.unique(np.concatenate(
+        [np.asarray(m.pixel_indices) for s in ops for m in ops[s]]))
+    print(f"common patch {len(common)} px, dr {dr:.2f} Mpc", flush=True)
+
+    cube, box = build_hi_cube(cfg, union, verbose=False)
+    hi_u = project_to_healpix(cube, box, cfg, union)
+    look = {p: i for i, p in enumerate(union)}
+    fg = {f: gdsm_equatorial_sky_model(freq=f, nside=X.NSIDE) for f in freqs}
+
+    out = dict(nmodes_grid=np.asarray(X.__dict__.get("NMODES_GRID",
+                                                     (1, 2, 3, 4, 6, 8, 10))))
+    for strategy in ("drift", "raster"):
+        g, w = X.replay_noise(strategy)
+        t0 = time.time()
+        cubes = {a: [] for a in ARMS}
+        hi_mm = []
+        for i, f in enumerate(freqs):
+            mm = ops[strategy][i]
+            pix = np.asarray(mm.pixel_indices)
+            truth = fg[f][pix]
+            sel = np.isin(pix, common)
+            hi = hi_u[i, [look[p] for p in pix]]
+            tods = X.simulate_foreground(strategy, f, verbose=False)
+            clean = [np.asarray(t, float) / ((1 + g[j]) * (1 + w[j]))
+                     for j, t in enumerate(tods["TOD_group"])]
+            hitod = [np.asarray(o) @ hi for o in mm.Tsys_operators]
+            mu = np.full_like(truth, float(np.mean(truth)))
+
+            cubes["floor"].append(
+                A.solve(mm, [c + h for c, h in zip(clean, hitod)],
+                        truth, mu)[sel])
+            cubes["total"].append(
+                A.solve(mm, [(c + h) * (1 + g[j]) * (1 + w[j])
+                             for j, (c, h) in enumerate(zip(clean, hitod))],
+                        truth, mu)[sel])
+            noisy = A.solve(mm, [c * (1 + g[j]) * (1 + w[j])
+                                 for j, c in enumerate(clean)], truth, mu)[sel]
+            quiet = A.solve(mm, clean, truth, mu)[sel]
+            cubes["noiseonly"].append(noisy - quiet)
+            hi_mm.append(A.response(mm, hi, truth)[sel])
+            if (i + 1) % 8 == 0:
+                print(f"  [{strategy}] {i + 1}/{len(freqs)} "
+                      f"({time.time() - t0:.0f} s)", flush=True)
+
+        hi_mm = np.asarray(hi_mm)
+        k, p_hi = A.pk_par(hi_mm, dr_mpc=dr)
+        out[f"{strategy}_k"] = k
+        out[f"{strategy}_p_hi"] = p_hi
+        for nm in out["nmodes_grid"]:
+            for arm in ARMS:
+                cleaned = A.pca_clean(np.asarray(cubes[arm]), int(nm))
+                _, p = A.pk_par(cleaned, dr_mpc=dr)
+                out[f"{strategy}_{arm}_{nm}"] = p
+            print(f"  [{strategy}] nmodes={nm}: "
+                  + ", ".join(
+                      f"{arm} {np.sqrt(np.median(out[f'{strategy}_{arm}_{nm}'] / p_hi)):.1f}x"
+                      for arm in ARMS), flush=True)
+
+    os.makedirs(os.path.join(_HERE, "results"), exist_ok=True)
+    path = os.path.join(_HERE, "results",
+                        f"hi_ablation_f{X.F_LO_MHZ:.0f}_{X.F_HI_MHZ:.0f}"
+                        f"_nc{X.NCHAN}_ns{X.NSIDE}.npz")
+    np.savez(path, **out)
+    print(f"wrote {path}", flush=True)
+
+
+if __name__ == "__main__":
+    main()

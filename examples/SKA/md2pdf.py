@@ -159,6 +159,15 @@ strong { color: #0d1b2e; }
 .math-display { text-align: center; margin: 11pt 0; break-inside: avoid; }
 .math-display img { max-width: 100%; }
 .math-inline { vertical-align: -18%; }
+/* Figures. Tag with {: .figure } -- without an explicit max-width a 2600px
+   PNG runs off the page, and the generic `img` selector would also catch the
+   inline-maths images and blow them up. */
+.figure { max-width: 100%; height: auto; display: block; margin: 10pt auto 3pt; }
+.caption { font-size: 8.6pt; color: #5a6672; margin: 0 0 12pt; }
+/* Figure and caption travel together. break-before/after: avoid is not enough
+   in WeasyPrint -- the caption still orphaned onto the next page -- so the
+   pair is wrapped in one unbreakable block instead. */
+.figblock { break-inside: avoid; margin: 10pt 0; }
 .subtitle { color: #5a6672; font-size: 10pt; margin: 0 0 4pt; }
 .built { color: #8a949e; font-size: 8pt; margin: 0 0 14pt; }
 """
@@ -184,7 +193,8 @@ def main():
     text = substitute_math(text)
 
     body = markdown.markdown(
-        text, extensions=["tables", "fenced_code", "sane_lists", "attr_list"])
+        text, extensions=["tables", "fenced_code", "sane_lists", "attr_list",
+                          "md_in_html"])
 
     from datetime import date
     header = f"<h1>{title}</h1>" if title else ""

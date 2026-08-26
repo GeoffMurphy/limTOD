@@ -216,6 +216,9 @@ examples/DSA/assets/
 # run_freq_sweep.sh / the notebooks if deleted. (Four early ones are already
 # tracked from before this rule; left alone rather than rewritten out.)
 examples/SKA/mapmaker_ops_*.pkl
+# Experiment 006 (HI) caches the same two things per channel, 64 of each and
+# 1.3 GB in total; rebuilt by `python ska_hi_experiment.py` if deleted.
+examples/SKA/hi_cache/
 # Built from ANALYSIS_LOG.md, not a source document.
 examples/SKA/ANALYSIS_LOG.pdf
 # Stray local scratch dir (near-duplicate of tests/)

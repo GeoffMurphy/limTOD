@@ -426,5 +426,108 @@ Things that actually bit us, in decreasing order of danger:
 | off-plane raster, temperature scale, summary figures | `ska_results_summary.ipynb` |
 | Band 1 frequency sweep, off-plane (exp 005) | `ska_freq_sweep.ipynb`, config in `ska_freq_sweep.py`, driver `run_freq_sweep.sh` |
 | the maps-vs-frequency figure for external use | `plot_freqsweep_maps.py` → `figures/freqsweep_maps_sampled.png` (each channel on an adequately sampled grid, numbers printed on the panels) |
+| HI mock + box-to-HEALPix lightcone (exp 006) | `ska_hi_mock.py` |
+| exp 006 config, TOD/operator caches | `ska_hi_experiment.py` (caches to `hi_cache/`, gitignored, 1.3 GB) |
+| exp 006 solving, PCA, transfer function | `ska_hi_analysis.py`, driver `run_hi_experiment.py` |
+| exp 006 results (cubes + every spectrum) | `results/hi_experiment_f350_400_nc32_ns64.npz` |
+| exp 006 floor/noise ablation | `ska_hi_ablation.py` → `results/hi_ablation_f350_400_nc32_ns64.npz` |
+| exp 006 figures | `ska_hi_plots.py` → `figures/hi_*.png` |
 | current state, results tables, queued work | `HANDOFF.md` |
 | archived per-experiment PDFs | `results/` |
+
+---
+
+## 11. HI injection and the transfer function (experiment 006)
+
+Added 2026-08-18, and the first machinery in the series that touches a
+cosmological signal rather than the foreground sky. Documented here because
+three pieces of it are non-obvious and will be reused.
+
+**Where the HI comes from.** limTOD has no 21 cm model — `sky_model.py` offers
+`GDSM_sky_model` and `generate_gaussian_field`, and the latter is an Alonso et
+al. (2014) *foreground* covariance (zero mean, spectrally smooth by
+construction), the opposite of what has to be injected. The signal is fastbox's
+`generate_hi_mock` chain instead: Gaussian density -> HI bias -> log-normal ->
+linear RSD -> Tb(z). Needs pyccl, which the limTOD venv lacks; run experiment
+006 under `gibbs_venv_312`, which has pyccl and reproduces the cached TODs to
+4e-14. pyccl's default `boltzmann_camb` transfer function needs camb, and camb
+2.0.3 asserts against pyccl 3.3.0, so `ska_hi_mock.COSMO_PARAMS` pins the
+analytic `eisenstein_hu` instead.
+
+**Box to HEALPix is a 3D lightcone interpolation, not a projection.** fastbox
+works in a Cartesian comoving box, limTOD in HEALPix. Each (pixel, channel)
+sample is placed at its true comoving position `r(z) n_pix` and the cube
+sampled there. A tangent-plane (gnomonic) projection would have been simpler
+but stretches scales 4.3% at the raster patch's ~20 deg edge. Two
+approximations remain: a single effective redshift (no growth across the band),
+and RSD applied along the box axis while the true radial direction tilts away
+from it, so the RSD component is cos(20 deg) = 0.94 at the extreme edge.
+
+**The operator IS the forward model — use it.** `mm.Tsys_operators` is the
+matrix `A`: `o @ sky` gives the TOD directly, with no `TODSim` call. Measured
+against a real simulation it reproduces the sky TOD to 4-7% rms (corr 0.998),
+the gap being the sub-beam and outside-patch structure it cannot represent.
+This is the difference between a feasible experiment and an infeasible one — a
+solve costs 0.57 s against ~5 min for a TOD simulation, and a mock-averaged
+transfer function needs hundreds of them. **Foregrounds must still be simulated
+properly**: injecting them through `A` would make them exactly representable
+and the beam + prior floor would vanish, which is the entire physics.
+
+**Injection is one solve, not two.** The map-maker is a Wiener filter, affine
+in the data:
+
+    solve(d) = W d + (A^T N^-1 A + S^-1)^-1 S^-1 mu
+
+so solving a component's own TOD with a **zero prior mean** kills the second
+term and returns `W A s` exactly, where `solve(d + A s) - solve(d)` would cost
+twice as much. `ska_hi_analysis.validate_linearity` checks the identity; it
+holds to 5e-6. Note this is also why the PCA step has to be handled by
+injection rather than algebra — PCA is *not* linear, which is the whole reason
+a transfer function is needed.
+
+**Why the power spectrum is radial.** At z ~ 2.8 a 15 m dish resolves 401 Mpc
+transverse, so k_perp reaches only 0.0157 Mpc^-1 while k_par runs 0.012 to
+0.192 — the accessible 3D k-space is a sliver near the k_par axis. `pk_par`
+therefore estimates a line-of-sight (cross-)spectrum averaged over pixels,
+rather than calling `fastbox.filters.pca_transfer_function`, which bins in 3D
+|k| on a Cartesian box. Blackman taper along frequency is not optional: the
+foregrounds are ~1e4 times the HI, so band-edge leakage would swamp the signal
+at high k_par.
+
+**T(k) is depth-independent.** Following Cunnington et al. (2023),
+`T(k) = P(X_m_clean - X_clean, X_m) / P(X_m, X_m)`, cross-power in the
+numerator to avoid the positive noise bias of an auto-power of the difference.
+Because each arm is ratioed against *its own* injected response, T(k) compares
+strategies fairly even when they are not depth-matched — which matters, since
+the raster is 2.3x shallower than the drift on the shared patch.
+
+**Common patch.** Operator pixel selection is beam-dependent, so each channel
+picks a different set (drift 316 px at 350 MHz falling to 277 at 399 MHz).
+Per-channel grids are themselves a chromatic effect and would confound the
+test, so everything is analysed on the intersection across all channels and
+both strategies.
+
+**Common resolution, and why it was missing.** The beam narrows 12.5% across
+350-400 MHz. Standard intensity-mapping practice reconvolves every channel to
+the widest beam in the band *before* cleaning, so that the instrument cannot
+imprint spectral structure on an otherwise smooth foreground. Experiment 006 as
+first run omitted this, which charged the survey with a chromatic term any real
+pipeline removes. `common_resolution` now applies a Gaussian kernel of FWHM
+`sqrt(theta_max^2 - theta_nu^2)` per channel -- exact for the Gaussian beam
+these runs use, approximate for the tapered-aperture beam, which they do not.
+
+It smooths a patch embedded in a zero-filled sphere, so the map is pulled toward
+zero within roughly a kernel width of the boundary; `interior_mask` keeps only
+pixels more than 3 deg inside, which costs 277 px -> 119. That is expensive
+enough that the un-smoothed comparison must be made on the *same* subset --
+`run_hi_experiment.py` therefore stores three variants (`""` as run on the full
+patch, `int_` as run on the interior, `cr_` reconvolved on the interior) so the
+reconvolution's effect is never confounded with the pixel-set change it forces.
+Worth a factor of two to the raster and nothing to the drift.
+
+**One thing the estimator cannot do.** The cross-power meant to isolate
+surviving HI in the *data* only works when the post-cleaning residual is not
+overwhelmingly larger than the signal. Measured here it is 50-500x, so
+`p_corrected_*` in the results file is noise-dominated and is not a recovered
+spectrum. `residual_over_hi_*` is stored beside it to make that checkable
+rather than something to rediscover.

@@ -265,3 +265,324 @@ the quadrature decomposition into floor and noise that holds on the plane to
 by this audit. Most likely the beam-scale residual is bias-dominated and the
 noise partially decorrelates it. Worth understanding before quoting a beam-scale
 noise term off this field.
+
+---
+
+## 2026-08-18 — Experiment 006: does any HI survive the pipeline?
+
+**Question.** Every residual in this series so far measures reconstruction
+fidelity of the diffuse *foreground* sky. There is no 21 cm signal anywhere in
+experiments 001-005 and no foreground separation step, so "a drift scan looks
+reasonable" has only ever meant "the map-maker recovers the bright foreground
+sky reasonably". This is the queued test that asks the real question.
+
+The specific worry, raised by experiment 005: the map's null space is strongly
+chromatic (17 measured modes at 350 MHz against 56 at 1050 MHz, patch shrinking
+2.3x). Foreground cleaning assumes foregrounds are spectrally smooth *after*
+the instrument and pipeline. A frequency-dependent null space imprints spectral
+structure on the foreground residual that PCA cannot remove, so it eats HI
+instead.
+
+**Setup.** 350-400 MHz, 32 contiguous channels, nside 64 — the series anchor, so
+the established off-plane drift-vs-raster geometry carries over. New simulation
+work rather than a re-solve: experiment 005's five channels span the whole of
+Band 1, which is useless for PCA. One operator and one foreground TOD per
+channel per strategy, 64 of each.
+
+HI from fastbox (`ska_hi_mock.py`): Gaussian density -> HI bias -> log-normal ->
+linear RSD -> Tb(z), giving Tb = 0.518 mK and b_HI = 1.559 at z_eff = 2.80. The
+box-to-HEALPix bridge is a 3D lightcone interpolation, each (pixel, channel)
+sample placed at its true comoving position, not a tangent-plane projection
+(which would stretch scales 4.3% at the raster patch edge).
+
+**What this band can measure.** At z ~ 2.8 a 15 m dish resolves 401 Mpc
+transverse, so k_perp reaches only 0.0157 Mpc^-1 while k_par runs 0.012 to
+0.192. The accessible 3D k-space is a sliver near the k_par axis, and the
+transfer function is quoted against k_par for that reason. This is a property
+of the survey, not of the simulation.
+
+**Two shortcuts, both validated.** Foregrounds are simulated properly by
+`TODSim` (that is what produces the beam + prior floor), but HI is injected as
+`A s` through the map-maker's own forward operator `mm.Tsys_operators`, which
+reproduces a simulated sky TOD to 4-7% rms (corr 0.998) — the gap being the
+sub-beam structure it cannot represent. This is what makes a mock-averaged
+transfer function affordable: a solve costs 0.57 s against ~5 min for a TOD
+simulation. The Wiener filter is affine in the data, so
+`solve(d + As) - solve(d) = response(s)` exactly; measured at 5e-6. Prior is
+flat, following the 2026-08-13 audit.
+
+Common patch is the intersection across all channels and both strategies: 277
+px, set by the drift's narrowest channel and entirely inside the raster's. The
+chromatic shrinkage is visible directly — drift 316 px at 350 MHz falling to
+277 px at 399 MHz, raster 684 -> 636.
+
+### Result 1: cross-linking substantially improves HI recovery
+
+T(k_par), the fraction of *map-made* HI surviving the clean, 20 mocks:
+
+| k_par | 0.012 | 0.024 | 0.036 | 0.048 | 0.060 | plateau |
+|---|---|---|---|---|---|---|
+| drift, 4 modes | 0.228 | 0.469 | 0.732 | 0.854 | 0.880 | ~0.90 |
+| raster, 4 modes | 0.449 | 0.822 | 0.965 | 0.961 | 0.956 | ~0.96 |
+| drift, 8 modes | 0.095 | 0.138 | 0.256 | 0.451 | 0.554 | ~0.80 |
+| raster, 8 modes | 0.034 | 0.142 | 0.437 | 0.769 | 0.899 | ~0.94 |
+
+Loss concentrates at low k_par, as expected — those modes look most like
+foregrounds. The raster is better nearly everywhere and the gap widens with
+aggressive cleaning. **T(k) is depth-independent**, being each arm's ratio
+against its own injected response, so this comparison is fair even though the
+raster is ~2.3x shallower on the shared patch.
+
+### Result 2: the drift map-maker turns HI into something that looks like foreground
+
+The headline rms ratio is a trap. Split by frequency structure:
+
+| drift | true -> map-made | ratio |
+|---|---|---|
+| full rms | 0.2257 -> 0.2085 mK | 0.924 |
+| frequency-mean removed | 0.2173 -> 0.0825 mK | **0.380** |
+| the frequency-mean itself | 0.0609 -> 0.1915 mK | **3.14** |
+
+The drift *amplifies* the frequency-coherent part of the HI 3.1x while keeping
+38% of the frequency-varying part. With ~17 measured modes it projects HI onto
+a nearly frequency-constant subspace — so the surviving signal looks like
+foreground and PCA removes it. That is the chromatic null space biting the
+signal directly, and it explains the collapse of drift T(k) at low k. The
+raster gives 1.11x and 0.532, far healthier.
+
+### Result 3: no HI is recoverable, and the blocker is the floor, not noise
+
+After cleaning, the residual sits far above the HI it contains (amplitude
+ratio, median over k):
+
+| | 4 modes | 8 modes |
+|---|---|---|
+| drift | **572x** | 152x |
+| raster | **65x** | 46x |
+
+Ablation settles what the residual is. Solving with noiseless data ("floor")
+against the full data ("total") gives 326900 vs 327600 (drift, 4 modes) and
+4262 vs 4357 (raster) in power — **identical to 0.2%**. The noise alone
+contributes 15x HI (drift) and 5.8x (raster), some 38x below the floor. The
+blocker is therefore entirely the **beam + prior floor**: sky the strategy
+never measured, filled by the prior, whose frequency structure is set by the
+chromatic null space. PCA cannot remove it because it is not spectrally smooth.
+This is the concern of the 2026-08-12 entry, confirmed and quantified.
+
+**Consequence for the deliverable.** The transfer function is well measured —
+injection is differential and mock-averaged, so the floor does not enter it —
+but there is nothing in the data to correct. The cross-power estimator meant to
+isolate surviving HI has no signal in it and wanders between -44 and +0.6 times
+the map-made HI power, which is why `p_corrected_*` in the results file is
+negative and unstable. **It must not be read as a recovered HI spectrum**;
+`residual_over_hi_*` is recorded alongside it to make the reason explicit.
+
+**What it changed.** The series can now say something about HI rather than only
+about foreground reconstruction, and it is a negative result at this band:
+a 15 m dish at z ~ 2.8, on 3 h of data, leaves a foreground-cleaning residual
+50-500x the HI, dominated by the beam + prior floor. Cross-linking improves
+every part of this — 9x lower residual, better T(k) at every k, and a
+map-making response that is not degenerate with foregrounds — which is now the
+strongest argument in the series for slewing in azimuth. Whether the residual
+can be pushed below the HI is a question about mode count, and mode count is
+what experiment 005 showed frequency buys.
+
+### The figures, and the maths behind them
+
+Drawn by `ska_hi_plots.py` from cached results; nothing below re-solves.
+Every display equation is written on one source line because `md2pdf.py`'s
+mathtext backend cannot span two.
+
+**The solve.** The map-maker is a Wiener filter. With $A$ the pointing-and-beam
+operator, $N$ the noise covariance, $S$ the prior covariance and $\mu$ the prior
+mean, one channel's map is
+
+$$m = (A^\top N^{-1} A + S^{-1})^{-1}(A^\top N^{-1} d + S^{-1}\mu)$$
+
+which is **affine** in the data $d$: a fixed linear map $W = (A^\top N^{-1}A + S^{-1})^{-1}A^\top N^{-1}$ plus a constant prior term. Two consequences run through the whole experiment. Injecting a sky component adds linearly, $m(d + As) - m(d) = WAs$; and solving that component's own TOD with $\mu = 0$ kills the constant term and returns $WAs$ directly, at one solve instead of two. `validate_linearity` measures the identity at $5\times10^{-6}$.
+
+The injected data is built as
+
+$$d = \left[A(s_\text{fg} + s_\text{HI})\right](1 + g)(1 + \eta)$$
+
+with the multiplicative 1/f gain $g$ and white $\eta$ replayed from their seeds, so the foreground TOD is the properly simulated one and only the HI rides in through $A$.
+
+**The radial power spectrum.** Only $k_\parallel$ is well sampled here, so `pk_par` estimates a line-of-sight spectrum, averaged over the $N_\text{pix}$ lines of sight of the common patch. With $w_i$ a Blackman taper over $N_c$ channels of comoving depth $\Delta r$, $L = N_c\Delta r$ and $\bar{w^2}$ the mean squared taper,
+
+$$P_{ab}(k) = \frac{\Delta r^2}{L\,\overline{w^2}}\left\langle \operatorname{Re}\left[\tilde a(k)\,\tilde b^{*}(k)\right]\right\rangle_\text{pix}, \qquad k = 2\pi f_\text{rfft}$$
+
+The taper is not cosmetic: the foregrounds are $\sim\!10^4$ times the HI, so band-edge leakage would otherwise swamp every high-$k_\parallel$ bin.
+
+**The clean.** PCA removes the highest-variance modes of the channel-channel covariance $C = \operatorname{cov}(x - \bar x)$, with $\bar x$ the per-channel mean over pixels. Keeping the leading $n$ eigenvectors as the columns of $U$,
+
+$$x_\text{clean} = x - \left[U U^\top (x - \bar x) + \bar x\right]$$
+
+This is the one step in the chain that is **not** linear in the data — $U$ is estimated from the data itself — which is exactly why the signal loss has to be measured by injection rather than computed.
+
+**The transfer function.** Following Cunnington et al. (2023), with $X$ the data cube and $X_m$ an independent mock HI response,
+
+$$T(k) = \frac{P\left(\mathcal{C}_n[X + X_m] - \mathcal{C}_n[X],\ X_m\right)}{P(X_m,\,X_m)}$$
+
+where $\mathcal{C}_n$ is the PCA clean at $n$ modes. The numerator is a *cross*-power with the known mock; an auto-power of the difference would carry a positive noise bias. Since $X_m$ is each strategy's own map-made response $WAs_m$, $T$ is a ratio within one arm and is therefore **depth-independent** — which is what makes drift and raster comparable here even though the raster is $2.3\times$ shallower on the shared patch.
+
+<div class="figblock">
+<img class="figure" src="figures/hi_transfer_function.png" alt="Transfer function, drift against raster">
+<p class="caption"><em>Figure 1 — $T(k_\parallel)$ per mode count, band $=\pm1\sigma$ over 20 mocks (Result 1). The raster is above the drift almost everywhere and the gap widens with aggressive cleaning. Loss piles up at low $k_\parallel$: those are the smoothest modes along the line of sight, so PCA cannot tell them from foreground.</em></p>
+</div>
+
+<div class="figblock">
+<img class="figure" src="figures/hi_residual_vs_modes.png" alt="Residual against HI, versus modes removed">
+<p class="caption"><em>Figure 2 — the post-clean residual in units of the HI it contains, $\sqrt{P_\text{clean}/P_\text{map made}}$, median over $k_\parallel$ (Result 3). Dashed is the pipeline as first run, solid after reconvolving to a common beam; both on the same 119 interior pixels, so the gap is the reconvolution alone. It halves the raster and does nothing for the drift. Removing more modes lowers the residual and costs signal, but never brings it near 1.</em></p>
+</div>
+
+**The field itself.** Before the power spectra, what is actually being
+observed and solved. The drift's patch is a stack of three constant-Dec strips;
+the raster's azimuth throw widens it 2.2x and wholly contains it, which is why
+the two can be compared on a shared patch at all.
+
+<div class="figblock">
+<img class="figure" src="figures/hi_patch_maps.png" alt="The field and the two footprints">
+<p class="caption"><em>Figure 5 — left: the GDSM foreground the survey sees, ~20 K against 0.5 mK of HI. Right: the nested footprints. The 119-pixel interior is what the common-resolution numbers are evaluated on, since reconvolving a zero-padded patch cannot be trusted near its boundary. Sequential ramp for temperature, categorical colours for membership — a diverging or rainbow scale would imply an ordering neither field has.</em></p>
+</div>
+
+**And the HI itself.** A map-domain panel was skipped when these figures were
+first drawn, on the grounds that the cleaned map is pure residual and makes a
+poor picture. That was half right: the cleaned panel *is* residual, and putting
+it beside the others on its own colour scale turns out to be the clearest
+statement of the result in the whole set.
+
+<div class="figblock">
+<img class="figure" src="figures/hi_maps.png" alt="HI in the map domain">
+<p class="caption"><em>Figure 6 — one channel, frequency mean removed, which is the part a survey can use and the part the drift loses. True HI, then the drift's map-made version — visibly washed out, the 0.38x of the split above — then the raster's, which keeps far more structure. The fourth panel is the cleaned data on a scale 50x wider: at 4 modes removed the raster's residual is 24x the HI, so nothing in that image is signal. Diverging blue-grey-red, so zero recedes and sign is readable.</em></p>
+</div>
+
+**The ablation.** With the noise replayable, the same operator is re-solved three ways at fixed HI injection: `floor` from noiseless data, so the residual is only sky the strategy never measured and the prior filled in; `total` from the full data; and `noiseonly` as the difference of a noisy and a noiseless foreground solve. If `floor` and `total` agree, the noise plays no part.
+
+<div class="figblock">
+<img class="figure" src="figures/hi_ablation.png" alt="Ablation: floor against total against noise">
+<p class="caption"><em>Figure 3 — they agree to 0.2% in power: the open rings (full data) sit on the floor line at every mode count, for both strategies, while noise alone runs $\sim\!38\times$ lower. The blocker is structural — the beam + prior floor — not sensitivity.</em></p>
+</div>
+
+**The frequency-structure split.** Write each cube as a per-pixel mean over channels plus a fluctuation, $x(\nu, p) = \bar x(p) + \delta x(\nu, p)$ with $\bar x(p) = N_c^{-1}\sum_\nu x(\nu, p)$. The two ratios that matter are
+
+$$r_\text{coh} = \frac{\operatorname{rms}_p\,\bar x_\text{map made}}{\operatorname{rms}_p\,\bar x_\text{true}}, \qquad r_\text{var} = \frac{\operatorname{rms}\,\delta x_\text{map made}}{\operatorname{rms}\,\delta x_\text{true}}$$
+
+A plain rms over the whole cube mixes the two and reported $0.924$ for the drift, which reads as near-perfect recovery and is badly misleading. Split apart it is $r_\text{var} = 0.380$ and $r_\text{coh} = 3.14$ — the drift discards most of the frequency-varying HI and *inflates* the frequency-coherent part threefold. Against the raster's $0.532$ and $1.11$ this is the mechanism behind Figure 1: with $\sim\!17$ measured modes the drift projects HI onto a nearly frequency-constant subspace, and anything frequency-constant is precisely what a foreground filter is built to delete.
+
+<div class="figblock">
+<img class="figure" src="figures/hi_frequency_structure.png" alt="Why the drift fails">
+<p class="caption"><em>Figure 4 — left: the fraction of radial HI power surviving the map-maker, before any cleaning. Right: the split above, on a shared axis because both are map-made/true rms ratios. Result 2.</em></p>
+</div>
+
+### Why does even the cross-linked raster not reach the HI?
+
+Asked 2026-08-19, and it splits into a configuration part and a structural one.
+
+**A real gap in our pipeline, now closed.** Experiment 006 as first run never
+reconvolved the channels to a common angular resolution. Every intensity-mapping
+pipeline does this before cleaning, precisely so the beam cannot imprint
+spectral structure: our beam narrows **12.5% across 350-400 MHz**, and leaving
+that in attributes to the survey a chromatic term any real analysis would have
+removed. `ska_hi_analysis.common_resolution` now brings each channel to the
+widest beam in the band with a Gaussian kernel of
+$\theta_k = \sqrt{\theta_\text{max}^2 - \theta_\nu^2}$ — exact for the Gaussian
+beam used here, approximate only for the tapered-aperture beam, which these runs
+do not use. Because it smooths a patch embedded in a zero-filled sphere, the
+result is only trusted on pixels more than 3° from the boundary, which costs
+well over half the patch; the un-smoothed control is therefore evaluated on that
+same subset rather than on all 277 pixels.
+
+**Re-run 2026-08-19 with all three variants stored.** Two corrections, which
+must not be confused with each other — residual/HI in amplitude, median over k,
+4 modes removed:
+
+| | as run, 277 px | as run, 119 interior px | common resolution, 119 px |
+|---|---|---|---|
+| drift | 570.6 | 322.1 | 347.3 |
+| raster | 65.9 | 48.5 | **24.0** |
+| cross-linking gain | 8.7$\times$ | 6.6$\times$ | **14.4$\times$** |
+
+The interior restriction alone accounts for a large part of the original
+numbers: the full-patch values carried an edge inflation that had nothing to do
+with the physics. The reconvolution then **halves the raster** (48.5 → 24.0, and
+33.6 → 17.2 at 8 modes, 29.4 → 13.4 at 10) and does **nothing for the drift**,
+which has too few measured modes for a cleaner beam to help. The transfer
+function drops slightly under reconvolution (raster median $T$ 0.920 → 0.882 at
+4 modes) because smoothing correlates the channels a little and PCA takes more
+with it — but the residual falls twice as fast, so the net is a clear gain.
+
+**The cross-linking case is therefore stronger than first published**, 14.4$\times$
+rather than 8.7$\times$ at 4 modes. Everything quoted before 2026-08-19 was the
+as-run full-patch column; prefer the last one.
+
+**What is left is not a sensitivity problem.** From the ablation, the raster at
+8 modes is floor $45.9\times$ and noise $4.9\times$ the HI, which combine in
+quadrature to $46.2$ against a measured $47.0$. Drive the noise to zero with
+infinite integration and the residual moves to $45.9\times$ — a **2%**
+improvement. More dishes behave identically: 64 dishes on the same track give
+64 times the samples of the *same* modes, buying noise and not information. The
+usual "integrate longer, add dishes" argument does not engage with this blocker
+at all. What does move it is mode count, which is geometry: 17 modes to 34 took
+the floor from $572\times$ to $65\times$.
+
+**And our band is close to a worst case.** Measured on this patch:
+
+| | 350 MHz | 400 | 700 | 1000 |
+|---|---|---|---|---|
+| foreground rms | 2.152 K | 1.515 | 0.341 | 0.129 |
+| HI $T_b$ | 0.541 mK | 0.492 | 0.270 | 0.149 |
+| **foreground / HI** | **3978** | 3082 | 1266 | **862** |
+| beam change over 50 MHz | **12.5%** | — | 6.7% | **4.8%** |
+
+Foreground contrast is $4.6\times$ worse and the beam $2.6\times$ more chromatic
+than at 1 GHz. Both stack against us, and both were chosen deliberately — 350 MHz
+is the series anchor — but it means these numbers should not be read as typical
+of Band 1.
+
+**So should we expect to reach the HI, as MeerKLASS does in autocorrelation?**
+Not in *this* configuration, and this experiment does not bound the method. Two
+differences matter more than the ones usually cited, and neither is sensitivity:
+
+1. **Their strongest results are cross-correlations.** Our residual is a bias
+   uncorrelated with the HI, so against an external tracer it largely nulls,
+   inflating the variance rather than biasing the answer. That is a far weaker
+   requirement than residual < signal, which is what the numbers above measure.
+2. **Survey volume does the averaging.** This patch holds roughly 13 beam areas
+   times 16 $k_\parallel$ bins, of order 200 independent modes — which is exactly
+   why our own cross-power estimator was too noisy to use (see the deliverable
+   note above). A survey over thousands of square degrees averages a residual
+   down in a way 277 pixels never can.
+
+The honest scope of the result is therefore: **drift scanning at the bottom of
+Band 1, on 3 h, is information-limited and cannot reach the HI, and no amount of
+integration or extra dishes changes that.** Extending it to a MeerKLASS-like
+configuration is a separate experiment that has not been run. Specific MeerKLASS
+survey parameters are deliberately not quoted here — check them before putting
+any in the write-up.
+
+### Position after 006 — consolidate before improving
+
+Stated 2026-08-18, at the end of the session that produced the above. The
+result is a negative one, so **the next step was figures and a presentable
+write-up of the non-recoverability, not another attempt to improve recovery.**
+**Done the same day:** `ska_hi_plots.py` draws four figures from cached results
+(listed in `HANDOFF.md`), and `ska_hi_ablation.py` now saves the floor/total/
+noise split k-resolved rather than printing medians to a console, which is what
+made the third figure drawable. The ablation re-run reproduced the original
+numbers exactly (drift 571.8x / 572.4x at 4 modes, raster 65.3x / 66.0x).
+
+The reasoning is worth recording because it cuts against the obvious instinct.
+A negative result that is *understood* — the blocker is the beam + prior floor,
+it is not noise (floor and total agree to 0.2%), and PCA cannot touch it
+because the chromatic null space makes it spectrally non-smooth — is a
+publishable statement about drift scanning on its own. Rushing to improve
+recovery before that is drawn up risks losing the clean version of the claim,
+and risks tuning against a result nobody has yet inspected visually. The
+machinery is documented in `METHODS.md` §11 so the presentation work does not
+have to re-derive it.
+
+One consequence for the improvement work when it does start: since the blocker
+is a *non-smooth* residual, a filter that does not assume spectral smoothness
+(GPR, or a foreground model built from the null space itself) is a more
+promising lever than tuning the PCA mode count, which the residual/HI table
+above shows saturating.
