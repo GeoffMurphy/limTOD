@@ -531,3 +531,129 @@ overwhelmingly larger than the signal. Measured here it is 50-500x, so
 `p_corrected_*` in the results file is noise-dominated and is not a recovered
 spectrum. `residual_over_hi_*` is stored beside it to make that checkable
 rather than something to rediscover.
+
+---
+
+## 12. How the experiment-006 figures were made
+
+All eight come from `ska_hi_plots.py`, in seconds, from cached results:
+
+```bash
+/home/geoff/gibbs_venv_312/bin/python ska_hi_plots.py
+```
+
+Nothing is re-solved. The three inputs are `results/hi_experiment_*.npz`
+(figures 1, 2, 4, 6), `results/hi_ablation_*.npz` (3) and `results/hi_rank_*.npz`
+(7, 8); figure 5 additionally loads the cached operators to draw the footprints.
+`figures/` is gitignored, so regenerating is the normal way to get them back.
+
+### The notebook is hand-maintained (from 2026-08-26)
+
+`ska_hi_figures.ipynb` was generated once, from a throwaway script, and has been
+edited by hand since. **Do not regenerate it** -- doing so silently destroys
+those edits, which has happened once already. Patch it cell by cell instead.
+
+The two surfaces have diverged on purpose, and the split is useful:
+
+| | `ska_hi_plots.py` | `ska_hi_figures.ipynb` |
+|---|---|---|
+| output | PNG, `draw_titles=True` | PDF, `DRAW_TITLES=False` |
+| for | `ANALYSIS_LOG.pdf` -- headline carries the argument | the paper -- headline goes in the LaTeX caption |
+| fonts | 8.5-10 pt, sized for the report | 14 pt, sized for a journal column |
+
+So a change worth keeping in both has to be made twice. `ANALYSIS_LOG.pdf`
+figures come from running the module; paper figures come from the notebook.
+
+One caveat carried by the notebook's version of the eigenvalue panel, which
+plots `log10(w)` as a scatter rather than the module's linear bars: the
+foreground's covariance is rank 1, so **15 of its 32 eigenvalues are numerically
+non-positive** and `log10` turns them into `nan`/`-inf`, dropping the points
+without an error. Harmless at the default `nbars = 6` (the first six are all
+positive) but it bites the moment `nbars` goes past ~17. Guard with
+`np.log10(np.maximum(w, 1e-18))`, as `fig_rank` already does.
+
+### Changing things without editing the module
+
+`ska_hi_figures.ipynb` is the interactive surface: it imports `ska_hi_plots`
+rather than duplicating it, so the two cannot drift apart. Two override
+mechanisms:
+
+- **`STYLE`** — global. `draw_titles` (False strips the headline and subtitle
+  from every figure, which is the main publication change), `fmt` ("pdf" for
+  vector), `dpi`, `figsize` (per figure, keyed by output name) and `rc` (merged
+  over the module defaults). Call `apply_style()` after editing `rc`.
+- **`text=`** — per call. Every `fig_*` accepts
+  `text={"title": ..., "subtitle": ...}`, so one cell can retitle its own figure
+  and leave the rest alone. Omit either key to keep the built-in wording.
+
+Anything beyond styling — panel counts, what is plotted — means editing the
+`fig_*` function itself; the notebook has `%autoreload 2` so the change is
+picked up without a restart.
+
+### Design choices, and why
+
+**Axes furniture is black** (`axes.edgecolor`, tick colours and labels all
+`#0b0b0b`). The data-viz default would keep it recessive grey so the data
+dominates; this is a deliberate departure. To go back, set
+`STYLE["rc"] = {"axes.edgecolor": BASELINE, "xtick.color": MUTED,
+"ytick.color": MUTED, "axes.labelcolor": INK2}` and re-apply.
+
+**Colour is assigned by the job it does, not by taste.** Series identity
+(drift / raster / third ablation arm) uses categorical slots blue `#2a78d6`,
+orange `#eb6834`, aqua `#1baf7a`. Those three clear all-pairs colourblind
+separation — worst min(protan, deutan) OKLab dE 9.2, worst normal-vision dE 24.0
+against a `#fcfcfb` surface — checked with a port of the validator rather than
+by eye. Signed fields (HI, residuals) use a **diverging** blue–grey–red with a
+neutral midpoint so zero recedes; positive-definite temperature uses a one-hue
+**sequential** ramp; footprint membership uses categorical slots. Never a
+rainbow: healpy's default would encode magnitude as hue and invent structure.
+
+**Identity never rests on hue alone.** Every series is directly labelled or
+legended, which is also what the relief rule requires for the aqua slot (2.74:1
+against the light surface, below the 3:1 contrast floor).
+
+**Light surface only.** These are for a PDF, so there is no dark variant.
+
+### What would have to change to be publication-ready
+
+The figures are built to be read in `ANALYSIS_LOG.pdf`, where a bold headline
+above each one carries the argument. A journal wants that in the caption
+instead. In rough order of effort:
+
+1. **Strip the titles and subtitles.** Every figure has a `fig.suptitle` plus a
+   `fig.text` subtitle stating the finding. Both must go, and their content move
+   into the LaTeX caption — otherwise the claim is asserted twice and the figure
+   reads as a slide.
+2. **Emit PDF, not PNG.** `savefig` to `.pdf` for vector text and lines. The map
+   panels stay raster internally (`imshow`) but everything else becomes scalable.
+   Current output is `dpi=200`, which is below most journals' raster floor.
+3. **Size to the column, not the screen.** Widths are set for a report page
+   (13.4 in for the 2x4 transfer-function grid). MNRAS is two-column: single
+   column is 84 mm, full width 170 mm. Anything staying single-column needs
+   re-laying-out, not just scaling, or the fonts end up illegible.
+4. **Match the document font size.** `font.size` 9.5 with 8.5 pt ticks is tuned
+   for the current widths; after (3) they will need redoing.
+5. **Reconsider panel counts.** The transfer-function figure is 2x4 = 7 mode
+   counts plus a legend cell. That is a lot for a journal page; 3 or 4
+   representative mode counts would carry the same argument.
+
+### Layout gotchas that cost time
+
+- **Colourbars and `tight_layout` do not mix.** A colourbar attached to several
+  axes (`ax=list(axes[:3])`) makes `tight_layout` size it to the whole figure
+  height. Use `layout="constrained"` on the figure and `shrink=`/`aspect=` on
+  the colourbar instead.
+- **`hp.gnomview(..., no_plot=True, return_projected_map=True)`** returns the
+  2-D array, which is then drawn with `imshow`. That gives full control over
+  colour map, limits and axes; letting healpy plot directly does not.
+  `cmap.set_bad(SURFACE)` makes unobserved sky read as page rather than as data.
+- **Set `ylim` on map panels.** The patch is a wide strip inside a square
+  gnomonic projection, so the default limits leave most of the panel empty.
+- **Legends collide with data more often than you expect.** Three of the eight
+  needed hand-placement; check every one after a data change rather than
+  trusting `loc="best"`.
+- **`fig.supylabel`, not per-axes labels, on a shared-y grid** — per-axes labels
+  collide between rows.
+- **A grid with a blank cell steals its column's x-axis.** In the 2x4 transfer
+  function the legend occupies cell [1,3], so the panel above it needs
+  `tick_params(labelbottom=True)` and its own `set_xlabel`.

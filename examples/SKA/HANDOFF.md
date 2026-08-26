@@ -573,6 +573,22 @@ The rest of the queue is the *improvement* work.
 
    (iii) GPR is still worth trying, but it does not deserve top billing.
 
+0d. **`hi_ablation` is still on the un-reconvolved, full-patch data.** Noticed
+   2026-08-26. `ska_hi_ablation.py` applies neither `common_resolution` nor the
+   interior mask, so figure 3 sits on a different scale from figure 2 and the
+   residual/HI table: ablation drift at 4 modes is 572.4x, which matches the
+   **as-run 277 px** column (570.6x), not the common-resolution 119 px one
+   (347.3x). The ablation's *conclusion* is unaffected -- it compares floor
+   against total against noise within one convention, and they agree to 0.2%
+   either way -- but the two figures should not be read side by side as they
+   stand, and the paper should not show both without saying so.
+
+   Fixing it means adding `cr(...)` and the interior mask to
+   `ska_hi_ablation.py` (~5 min re-run), regenerating figure 3, and re-checking
+   the numbers quoted from it: "floor and total agree to 0.2%" and "noise alone
+   is ~38x below the floor" both appear in `ANALYSIS_LOG.md`, `HANDOFF.md` and
+   the paper skeleton.
+
 1. **Depth-matched raster done properly** — narrow the azimuth throw so the scan
    natively selects ~321 px, instead of the analytic noise scaling used above.
 2. **More crossing angles** — currently only two (~75° apart). More elevations

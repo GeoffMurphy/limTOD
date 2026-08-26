@@ -111,6 +111,12 @@ def main():
         out[f"{strategy}_w_floor"] = w_fl
         out[f"{strategy}_w_hi"] = w_hi
         out[f"{strategy}_overlap"] = cosines
+        # Eigenvectors too: the spectral SHAPES each component is built from.
+        # Reading them is what makes "rank" concrete -- the foreground's first
+        # mode should be a clean power law, the floor's should get wigglier.
+        out[f"{strategy}_V_fg"] = spectrum(np.asarray(truth_c))[1][:, :8]
+        out[f"{strategy}_V_floor"] = V_fl[:, :8]
+        out[f"{strategy}_V_hi"] = V_hi[:, :8]
         for lbl, w in (("foreground", w_fg), ("floor", w_fl), ("HI", w_hi)):
             print(f"  {strategy:7s} {lbl:11s} modes for 90/99/99.9%: "
                   f"{n_modes_for(w,0.90):3d} {n_modes_for(w,0.99):3d} "

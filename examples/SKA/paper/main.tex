@@ -1,0 +1,391 @@
+% =====================================================================
+% Drift-scan feasibility for SKA-Mid-like single-dish intensity mapping
+%
+% SKELETON. Numbers, equations and figures are in place; the prose is not.
+% Figures live in ../figures/ (gitignored). Regenerate with
+%     /home/geoff/gibbs_venv_312/bin/python ../ska_hi_plots.py
+% then copy the PNGs into an Overleaf figures/ folder.
+% =====================================================================
+% mnras.cls ALREADY loads geometry, hyperref and graphicx -- loading them again
+% is the "Option clash" error. It also takes no font-size option, so no 11pt.
+\documentclass[a4paper,fleqn,usenatbib]{mnras}
+
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{siunitx}
+
+% siunitx has no parsec, so \mega\parsec parses as a prefix with no unit --
+% that is the "Found prefix part with no unit" error.
+\DeclareSIUnit{\parsec}{pc}
+
+\graphicspath{{figures/}{../figures/}}
+
+% To go back to a plain article: swap the class line for
+%     \documentclass[11pt,a4paper]{article}
+% add   \usepackage[margin=2.4cm]{geometry} \usepackage{graphicx}
+%       \usepackage[hidelinks]{hyperref}
+% and change every figure* back to figure (mnras is two-column, article is not).
+
+\newcommand{\kpar}{k_{\parallel}}
+\newcommand{\kperp}{k_{\perp}}
+\newcommand{\Tb}{T_{\mathrm{b}}}
+
+% mnras wants a short running title and a short author list in the brackets.
+\title[Drift scanning is information-limited]{Drift scanning for SKA-Mid-like
+single-dish intensity mapping: an information-limited regime}
+
+\author[G. Murphy et al.]{
+G. Murphy$^{1}$\thanks{E-mail: TODO}
+and \textit{(co-authors)}
+\\
+$^{1}$TODO affiliation
+}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+% TODO. Skeleton of the argument:
+% (i) a parked dish cannot cross-link at any azimuth -- geometric, not a
+%     matter of degree;
+% (ii) the residual is set by the number of measured sky modes, not by
+%      sensitivity: 17 for the drift against 34 for a constant-elevation
+%      raster, and integration does not change it;
+% (iii) with an injected HI signal, nothing is recoverable at the bottom of
+%       Band 1 -- the post-clean residual is 347x (drift) and 24x (raster)
+%       the signal, and it is the beam + prior floor, not noise;
+% (iv) cross-linking improves every part of this by roughly an order of
+%      magnitude, which is the practical recommendation.
+\end{abstract}
+
+% =====================================================================
+\section{Introduction}
+% TODO
+% Context: single-dish IM, MeerKLASS, SKA-Mid Band 1. Why drift scanning is
+% attractive (no moving parts, stable ground/spillover signature) and what
+% the open question is.
+
+% =====================================================================
+\section{Simulations}
+\label{sec:sims}
+
+\subsection{Instrument and sky}
+Single \SI{15}{\metre} dish at the Karoo site
+($\phi = \ang{-30.713}$), \SI{2}{\second} sampling, \SI{3}{\hour} total
+integration, HEALPix maps at $N_{\mathrm{side}} = 64$. The sky is GSM2008
+rotated to equatorial coordinates. Two beams: a symmetric Gaussian with
+$\mathrm{FWHM} = 1.22\lambda/D = \ang{3.99}$ at \SI{350}{\mega\hertz}, and a
+tapered circular aperture ($-\SI{14}{\deci\bel}$ edge taper,
+$\mathrm{FWHM} = \ang{3.84}$, first sidelobe at $\sim-\SI{23}{\deci\bel}$).
+
+\subsection{Time-ordered data}
+With no receiver temperature and no additive $T_{\mathrm{sys}}$ term, so that
+the only signal is sky:
+\begin{equation}
+  d(t) = \bigl[ A\,s \bigr](t)\,\bigl(1 + g(t)\bigr)\bigl(1 + \eta(t)\bigr),
+  \label{eq:tod}
+\end{equation}
+where $A$ is the pointing-and-beam operator, $g$ is $1/f$ gain drift from a
+pure $f^{-2}$ flicker model, and $\eta$ is white noise of fractional variance
+$\num{2.5e-6}$. Both noise terms are \emph{fractional}, so the contamination
+they inject scales with sky brightness.
+% TODO: note the seeding scheme -- identical realisations across scenarios is
+% what makes every comparison in this paper controlled.
+
+\subsection{Scan strategies}
+Both produce exactly 5400 samples, so comparisons are at fixed clock time.
+\textbf{Drift}: parked at azimuth \ang{0}, elevations \ang{52}/\ang{50}/\ang{48}
+on three consecutive sidereal days. \textbf{Raster}: MeerKLASS-style
+constant-elevation scan at \ang{38.19}, triangle-wave azimuth $\pm\ang{7.5}$
+about \ang{45} (rising) and \ang{315} (setting), \SI{6}{\arcminute\per\second}.
+
+\paragraph{A parked dish cannot cross-link.}
+A dish at fixed $(\mathrm{az}, \mathrm{el})$ is stationary in the rotating
+Earth frame, so its boresight traces a constant-declination circle swept in
+$+\mathrm{RA}$. The track position angle is \ang{90} at \emph{every} azimuth
+(verified numerically at az $0/45/90/270/315$); azimuth selects which
+declination, not the scan direction. The two raster passes cross at \ang{73.9},
+which is the one thing the drift cannot do at any pointing.
+
+% =====================================================================
+\section{Map-making}
+\label{sec:mapmaking}
+
+The map-maker is a Wiener filter. With $N$ the noise covariance, $S$ the prior
+covariance and $\mu$ the prior mean,
+\begin{equation}
+  m = \bigl(A^{\top} N^{-1} A + S^{-1}\bigr)^{-1}
+      \bigl(A^{\top} N^{-1} d + S^{-1}\mu\bigr).
+  \label{eq:wiener}
+\end{equation}
+Equation~\eqref{eq:wiener} is \emph{affine} in $d$: a fixed linear map
+$W = (A^{\top}N^{-1}A + S^{-1})^{-1}A^{\top}N^{-1}$ plus a constant prior term.
+Two consequences are used throughout. An injected sky component adds linearly,
+\begin{equation}
+  m(d + A s) - m(d) = W A s,
+  \label{eq:linearity}
+\end{equation}
+and solving a component's own TOD with $\mu = 0$ returns $WAs$ directly, at one
+solve rather than two. Equation~\eqref{eq:linearity} is verified numerically to
+$5\times10^{-6}$.
+
+\paragraph{The beam + prior floor.}
+Solving with \emph{noiseless} data leaves a residual
+\begin{equation}
+  r_{\mathrm{floor}} = (I - WA)\,s,
+  \label{eq:floor}
+\end{equation}
+i.e.\ sky the strategy never measured, filled in by the prior. This term does
+not integrate down, and it is the quantity that limits everything below.
+
+\paragraph{Prior choice.}
+% TODO: expand. A beam-smoothed-truth prior flatters the drift, which leans on
+% it 1.40x against the raster's 1.05x. All numbers quoted here use a FLAT prior,
+% constant at the patch mean, so that every spatial mode in the answer comes
+% from the data.
+
+% =====================================================================
+\section{How much sky does a strategy actually measure?}
+\label{sec:modes}
+
+Eigen-analysis of $A^{\top}N^{-1}A$ counts the independently constrained sky
+modes. The result is grid-independent (identical at $N_{\mathrm{side}} = 32$,
+64, 128, 256):
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lccc}
+\toprule
+ & effective modes & modes $> 1\%$ of $\lambda_{\max}$ & pixels solved \\
+\midrule
+Drift  & 3.9 & \textbf{17} & 317 \\
+Raster & 5.5 & \textbf{34} & 684 \\
+\bottomrule
+\end{tabular}
+\caption{The strategy, not the pixelisation, sets how much sky is measurable.
+Cross-linking doubles the number of measured modes.}
+\label{tab:modes}
+\end{table}
+
+% TODO: the consequence -- Tsys/sqrt(N_samples) overstates the information by
+% ~19x, because it assumes every pixel is independently measured.
+
+% =====================================================================
+\section{Foreground reconstruction}
+\label{sec:foreground}
+
+% TODO: the 001--005 results. Suggested content:
+% - 1/f is not the limiter: the residual decomposes in quadrature to a
+%   21.4 K beam+prior floor, 7.3 K white, 4.8 K 1/f. Removing 1/f entirely
+%   buys 1.6%.
+% - Cross-linking on a flat prior: floor -32.6% per pixel, -46.4% at beam
+%   scale.
+% - Integration: 3 h -> infinity moves the total only 21.9 -> 15.7 K, because
+%   the asymptote IS the floor. Information-limited, not noise-limited.
+
+% =====================================================================
+\section{HI signal recovery}
+\label{sec:hi}
+
+\subsection{Injected signal and geometry}
+A log-normal HI cube (Gaussian density $\rightarrow$ HI bias $\rightarrow$
+log-normal $\rightarrow$ linear RSD $\rightarrow$ $\Tb(z)$) is generated at
+$z_{\mathrm{eff}} = 2.80$, giving $\Tb = \SI{0.518}{\milli\kelvin}$ and
+$b_{\mathrm{HI}} = 1.559$. It is placed on the HEALPix grid by a
+three-dimensional lightcone interpolation: each (pixel, channel) sample is
+evaluated at its true comoving position $r(z)\,\hat{n}$.
+
+At $z \simeq 2.8$ a \SI{15}{\metre} dish resolves \SI{401}{\mega\parsec}
+transverse, so $\kperp$ reaches only \SI{0.016}{\per\mega\parsec} while $\kpar$
+runs \numrange{0.012}{0.192}. The accessible three-dimensional $k$-space is a
+sliver near the $\kpar$ axis, and all spectra below are quoted against $\kpar$
+for that reason.
+
+\subsection{Estimator}
+With $w_i$ a Blackman taper over $N_c$ channels of comoving depth $\Delta r$,
+$L = N_c \Delta r$, and $\overline{w^2}$ the mean squared taper,
+\begin{equation}
+  P_{ab}(k) = \frac{\Delta r^{2}}{L\,\overline{w^{2}}}
+    \Bigl\langle \operatorname{Re}\bigl[\tilde a(k)\,\tilde b^{*}(k)\bigr]
+    \Bigr\rangle_{\mathrm{pix}},
+  \qquad k = 2\pi f_{\mathrm{rfft}} .
+  \label{eq:pkpar}
+\end{equation}
+The taper is not cosmetic: the foregrounds are $\sim10^{4}$ times the HI, so
+band-edge leakage would otherwise dominate every high-$\kpar$ bin.
+
+\subsection{Foreground cleaning and the transfer function}
+Cleaning removes the leading $n$ eigenmodes of the channel--channel covariance
+$C = \operatorname{cov}(x - \bar{x})$. With $U$ their eigenvectors,
+\begin{equation}
+  x_{\mathrm{clean}} = x - \bigl[ U U^{\top}(x - \bar{x}) + \bar{x} \bigr].
+  \label{eq:pca}
+\end{equation}
+This is the one step that is \emph{not} linear in the data, which is why the
+signal loss must be measured by injection rather than computed. Following
+\citet{Cunnington2023}, with $\mathcal{C}_n$ the clean at $n$ modes and $X_m$ an
+independent mock,
+\begin{equation}
+  T(k) = \frac{P\bigl(\mathcal{C}_n[X + X_m] - \mathcal{C}_n[X],\ X_m\bigr)}
+              {P(X_m,\,X_m)} .
+  \label{eq:tf}
+\end{equation}
+The cross-power in the numerator avoids the positive noise bias an auto-power of
+the difference would carry. Because $X_m$ is each strategy's own map-made
+response $WAs_m$, $T$ is a ratio within one arm and is therefore
+depth-independent.
+
+\subsection{Common resolution}
+The beam narrows \SI{12.5}{\percent} across \SIrange{350}{400}{\mega\hertz}.
+Each channel is reconvolved to the widest beam in the band with a Gaussian
+kernel
+\begin{equation}
+  \theta_{k}(\nu) = \sqrt{\theta_{\max}^{2} - \theta^{2}(\nu)},
+  \label{eq:commonres}
+\end{equation}
+exact for the Gaussian beam used here. This halves the raster's residual and
+leaves the drift unchanged.
+
+% ---------------------------------------------------------------------
+\subsection{Results}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{hi_transfer_function.png}
+\caption{Fraction of map-made HI surviving the clean, $T(\kpar)$, per number of
+modes removed. Band is $\pm1\sigma$ over 20 independent mocks. Loss concentrates
+at low $\kpar$, where the modes are smoothest along the line of sight and least
+distinguishable from foreground.}
+\label{fig:tf}
+\end{figure*}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.72\textwidth]{hi_residual_vs_modes.png}
+\caption{Post-clean residual in units of the HI it contains. Dashed is the
+pipeline without the common-resolution step of Eq.~\eqref{eq:commonres}, solid
+with it; both on the same interior pixels. Removing more modes lowers the
+residual and costs signal, but never brings it near unity.}
+\label{fig:residual}
+\end{figure}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{hi_ablation.png}
+\caption{Noiseless (``floor'') and full data agree to \SI{0.2}{\percent} in
+power -- the open rings sit on the line -- while noise alone runs
+$\sim38\times$ lower. The blocker is structural, not a matter of sensitivity.}
+\label{fig:ablation}
+\end{figure*}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{hi_frequency_structure.png}
+\caption{Left: radial HI power surviving the map-maker. Right: the same
+quantity split into its frequency-varying and frequency-coherent parts. The
+drift retains \SI{38}{\percent} of the former while amplifying the latter
+$3.14\times$; a plain rms ratio ($0.924$) hides this entirely.}
+\label{fig:freqstruct}
+\end{figure*}
+
+\begin{table}[t]
+\centering
+\begin{tabular}{lccc}
+\toprule
+residual / HI, 4 modes & as run, 277\,px & interior, 119\,px & common res., 119\,px \\
+\midrule
+Drift  & 570.6 & 322.1 & 347.3 \\
+Raster & 65.9  & 48.5  & \textbf{24.0} \\
+\midrule
+Cross-linking gain & $8.7\times$ & $6.6\times$ & $\mathbf{14.4\times}$ \\
+\bottomrule
+\end{tabular}
+\caption{Two corrections, kept separable: restricting to pixels more than
+\ang{3} from the patch edge removes an edge inflation, and the reconvolution of
+Eq.~\eqref{eq:commonres} then halves the raster's residual while leaving the
+drift unchanged.}
+\label{tab:residual}
+\end{table}
+
+% =====================================================================
+\section{Why a different cleaning basis cannot help}
+\label{sec:rank}
+
+Every subspace method -- PCA, ICA, GMCA, NMF, kernel PCA -- removes a rank-$n$
+subspace of the channel--channel covariance and they differ only in how that
+subspace is chosen. The relevant measurement is therefore how many modes each
+component occupies.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lcccc}
+\toprule
+modes for & \SI{90}{\percent} & \SI{99}{\percent} & \SI{99.9}{\percent}
+  & $\lambda_{10}/\lambda_{1}$ \\
+\midrule
+GDSM foreground   & \textbf{1} & \textbf{1} & \textbf{1} & \num{2.6e-17} \\
+Floor, drift      & 2 & 6 & 10 & \num{6.3e-4} \\
+Floor, raster     & 1 & 2 & 5  & \num{5.7e-5} \\
+HI, drift         & 14 & \textbf{23} & 28 & --- \\
+HI, raster        & 17 & \textbf{25} & 30 & --- \\
+\bottomrule
+\end{tabular}
+\caption{The foreground is rank one over a \SI{50}{\mega\hertz} block; the HI is
+the only component that is not compressible.}
+\label{tab:rank}
+\end{table}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{hi_rank.png}
+\caption{Eigenspectrum and cumulative variance of the channel--channel
+covariance for each component.}
+\label{fig:rank}
+\end{figure*}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{hi_eigenvectors.png}
+\caption{The leading eigenvectors themselves. Mode 1 of the foreground is a
+single smooth power law; its modes 2--4 carry
+$\lambda/\lambda_{1} \sim 10^{-17}$ and are floating-point noise.}
+\label{fig:eigenvectors}
+\end{figure*}
+
+% TODO: the argument. One PCA mode removes the foreground entirely (after which
+% the drift residual is still 896x the HI), so from mode 2 onward the filter is
+% fighting the instrumental floor rather than foregrounds. The floor is itself
+% low-rank, so a subspace method CAN capture it -- but its modes are the smooth
+% ones, and the HI's low-kpar power sits in the same few. Mean cosine of the
+% principal angles between the rank-6 floor and HI subspaces is 0.60 (drift)
+% and 0.74 (raster). No choice of basis escapes an overlap.
+
+% =====================================================================
+\section{Discussion}
+% TODO. Points worth making:
+% - The scope of the negative result: drift scanning at the BOTTOM of Band 1
+%   on 3 h. Foreground-to-HI contrast is 3978 at 350 MHz against 862 at 1 GHz,
+%   and the beam is 2.6x more chromatic; this is close to a worst case.
+% - Why more integration and more dishes do not help: the noise is already
+%   ~38x below the floor, so driving it to zero improves the residual by 2%.
+% - What does help: mode count, i.e. geometry. And modelling the floor rather
+%   than filtering it -- Eq.~\eqref{eq:floor} is known exactly in simulation.
+% - Relation to MeerKLASS-type analyses: their strongest results are
+%   cross-correlations, where a residual uncorrelated with the tracer inflates
+%   the variance rather than biasing the answer; and survey volume averages a
+%   residual down in a way a 277-pixel patch cannot.
+
+% =====================================================================
+\section{Conclusions}
+% TODO
+
+% =====================================================================
+% \bibliographystyle{mnras}   % switch on once you move to a .bib
+\begin{thebibliography}{9}
+\bibitem[Cunnington et al.(2023)]{Cunnington2023}
+Cunnington S., et al., 2023, MNRAS % TODO complete
+\bibitem[Wang et al.(2021)]{Wang2021}
+Wang J., et al., 2021, MNRAS % TODO complete
+\end{thebibliography}
+
+\end{document}

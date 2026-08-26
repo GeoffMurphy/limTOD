@@ -1,14 +1,23 @@
 """Experiment 006 figures: the non-recoverability result, made presentable.
 
-Four figures, all drawn from cached results so nothing is re-solved:
+Eight figures, all drawn from cached results so nothing is re-solved:
 
     figures/hi_transfer_function.png   T(k_par), drift vs raster, per mode count
     figures/hi_residual_vs_modes.png   how far the residual sits above the HI
     figures/hi_ablation.png            floor vs total vs noise-only
     figures/hi_frequency_structure.png why the drift fails
+    figures/hi_patch_maps.png          the field and the two footprints
+    figures/hi_maps.png                HI in the map domain
+    figures/hi_rank.png                eigenspectra: is the floor compressible?
+    figures/hi_eigenvectors.png        the spectral shapes themselves
 
-Reads ``results/hi_experiment_*.npz`` (figures 1, 2, 4) and
-``results/hi_ablation_*.npz`` (figure 3).
+Reads ``results/hi_experiment_*.npz`` (figures 1, 2, 4, 6),
+``results/hi_ablation_*.npz`` (figure 3) and ``results/hi_rank_*.npz``
+(figures 7, 8). Figure 5 also loads the cached operators for the footprints.
+
+**These are report figures, not publication figures.** See METHODS.md section 12
+for what would have to change -- chiefly that every title and subtitle is baked
+into the PNG and would need to move to a LaTeX caption.
 
     /home/geoff/gibbs_venv_312/bin/python ska_hi_plots.py
 
@@ -48,14 +57,72 @@ plt.rcParams.update({
     "figure.facecolor": SURFACE, "axes.facecolor": SURFACE,
     "savefig.facecolor": SURFACE,
     "font.size": 9.5, "axes.labelsize": 10, "axes.titlesize": 10.5,
-    "axes.edgecolor": BASELINE, "axes.labelcolor": INK2,
-    "xtick.color": MUTED, "ytick.color": MUTED,
+    # Axes furniture in ink rather than the recessive grey the
+    # data-viz default suggests -- override via STYLE["rc"] to go back.
+    "axes.edgecolor": INK, "axes.labelcolor": INK,
+    "xtick.color": INK, "ytick.color": INK,
     "xtick.labelsize": 8.5, "ytick.labelsize": 8.5,
     "axes.grid": True, "grid.color": GRID, "grid.linewidth": 0.6,
     "axes.spines.top": False, "axes.spines.right": False,
     "legend.frameon": False, "legend.fontsize": 9,
     "lines.linewidth": 2.0, "figure.dpi": 110, "savefig.dpi": 200,
 })
+
+
+# ---------------------------------------------------------------------------
+# Everything a caller might want to change, in one place.
+# ---------------------------------------------------------------------------
+# `ska_hi_figures.ipynb` edits this dict and calls apply_style(), so the
+# notebook never duplicates plotting code. For publication the two that matter
+# are draw_titles=False (the headline moves into the LaTeX caption) and
+# fmt="pdf". See METHODS.md section 12.
+STYLE = dict(
+    draw_titles=True,      # False strips suptitle + subtitle from every figure
+    fmt="png",             # "pdf" for vector text and lines
+    dpi=200,
+    figsize={},            # per-figure override, e.g. {"hi_rank": (7.0, 3.2)}
+    rc={},                 # extra rcParams, merged over the defaults above
+)
+
+_BASE_RC = dict(plt.rcParams)
+
+
+def apply_style():
+    """Re-apply rcParams after STYLE['rc'] has been edited."""
+    plt.rcParams.update(_BASE_RC)
+    plt.rcParams.update(STYLE.get("rc", {}))
+
+
+def _figsize(name, default):
+    return STYLE.get("figsize", {}).get(name, default)
+
+
+def _title(fig, title, subtitle, x=0.01, y_title=1.05, y_sub=0.99,
+           override=None):
+    """Headline + subtitle.
+
+    Suppressed entirely when STYLE['draw_titles'] is False. `override` is the
+    `text=` argument every fig_* accepts, so a caller can retitle a figure
+    without editing this module:
+
+        P.fig_rank(rk, text={'title': '...', 'subtitle': '...'})
+    """
+    if not STYLE.get("draw_titles", True):
+        return
+    o = override or {}
+    title = o.get("title", title)
+    subtitle = o.get("subtitle", subtitle)
+    fig.suptitle(title, color=INK, fontsize=13, fontweight="semibold",
+                 x=x, ha="left", y=y_title)
+    fig.text(x, y_sub, subtitle, color=INK2, fontsize=9.4, ha="left")
+
+
+def _save(fig, name):
+    """Write figures/<name>.<fmt>, honouring STYLE."""
+    out = os.path.join(FIGDIR, f"{name}.{STYLE.get('fmt','png')}")
+    fig.savefig(out, bbox_inches="tight", dpi=STYLE.get("dpi", 200))
+    plt.close(fig)
+    return out
 
 
 def _tidy(ax):
@@ -78,12 +145,12 @@ def _load():
 # Figure 1 -- the transfer function
 # ---------------------------------------------------------------------------
 
-def fig_transfer_function(exp, var="cr_"):
+def fig_transfer_function(exp, var="cr_", text=None):
     """T(k_par). Defaults to the common-resolution, interior-pixel variant --
     the pipeline a real analysis would run."""
     nmodes = [int(n) for n in exp["nmodes_grid"]]
     k = exp[f"drift_{var}k"]
-    fig, axes = plt.subplots(2, 4, figsize=(13.4, 6.4), sharex=True, sharey=True)
+    fig, axes = plt.subplots(2, 4, figsize=_figsize("hi_transfer_function", (13.4, 6.4)), sharex=True, sharey=True)
 
     for ax, nm in zip(axes.ravel(), nmodes):
         _tidy(ax)
@@ -138,34 +205,28 @@ def fig_transfer_function(exp, var="cr_"):
     fig.supylabel("$T(k_\\parallel)$   —   fraction of HI power surviving the clean",
                   color=INK2, fontsize=10, x=0.005)
 
-    fig.suptitle("Cross-linking preserves HI through foreground cleaning at every scale",
-                 color=INK, fontsize=13, fontweight="semibold", x=0.055,
-                 ha="left", y=0.985)
-    fig.text(0.055, 0.938,
+    _title(fig, "Cross-linking preserves HI through foreground cleaning at every scale",
              "350$-$400 MHz, 32 channels, nside 64. Channels reconvolved to a "
              "common 3.99$\\degree$ beam, 119 interior pixels. $T$ is each "
              "strategy's ratio against its own injected response, so it is "
              "depth-independent.",
-             color=INK2, fontsize=9.4, ha="left")
+           x=0.055, y_title=0.985, y_sub=0.938, override=text)
     fig.tight_layout(rect=(0, 0, 1, 0.925))
-    out = os.path.join(FIGDIR, "hi_transfer_function.png")
-    fig.savefig(out, bbox_inches="tight")
-    plt.close(fig)
-    return out
+    return _save(fig, "hi_transfer_function")
 
 
 # ---------------------------------------------------------------------------
 # Figure 2 -- residual against the signal
 # ---------------------------------------------------------------------------
 
-def fig_residual_vs_modes(exp):
+def fig_residual_vs_modes(exp, text=None):
     """Residual/HI against modes removed, as run and after reconvolution.
 
     Both variants are on the same 119 interior pixels, so the improvement is
     the reconvolution alone and not the pixel-set change it forces.
     """
     nmodes = [int(n) for n in exp["nmodes_grid"]]
-    fig, ax = plt.subplots(figsize=(8.6, 5.6))
+    fig, ax = plt.subplots(figsize=_figsize("hi_residual_vs_modes", (8.6, 5.6)))
     _tidy(ax)
 
     VAR = [("int_", (0, (5, 2)), "none", "as run"),
@@ -197,31 +258,33 @@ def fig_residual_vs_modes(exp):
                        for var, ls, _m, lab in VAR],
               loc="center left", bbox_to_anchor=(0.02, 0.30),
               handlelength=2.6, labelspacing=0.8)
-    ax.set_title("Reconvolving to a common beam halves the raster's residual, "
-                 "and does nothing for the drift",
-                 color=INK, fontsize=12, fontweight="semibold", loc="left",
-                 pad=26)
-    ax.text(0, 1.045,
-            "Both variants on the same 119 interior pixels. Even corrected, the "
-            "cross-linked raster is still 13$-$30$\\times$ above the HI.",
-            transform=ax.transAxes, color=INK2, fontsize=9.2)
+    if STYLE.get("draw_titles", True):   # axes-level here, not fig-level
+        _o = text or {}
+        ax.set_title(_o.get("title",
+                     "Reconvolving to a common beam halves the raster's "
+                     "residual, and does nothing for the drift"),
+                     color=INK, fontsize=12, fontweight="semibold", loc="left",
+                     pad=26)
+        ax.text(0, 1.045,
+                _o.get("subtitle",
+                       "Both variants on the same 119 interior pixels. Even "
+                       "corrected, the cross-linked raster is still "
+                       "13$-$30$\\times$ above the HI."),
+                transform=ax.transAxes, color=INK2, fontsize=9.2)
     fig.tight_layout()
-    out = os.path.join(FIGDIR, "hi_residual_vs_modes.png")
-    fig.savefig(out, bbox_inches="tight")
-    plt.close(fig)
-    return out
+    return _save(fig, "hi_residual_vs_modes")
 
 
 # ---------------------------------------------------------------------------
 # Figure 3 -- the ablation
 # ---------------------------------------------------------------------------
 
-def fig_ablation(abl):
+def fig_ablation(abl, text=None):
     nmodes = [int(n) for n in abl["nmodes_grid"]]
     arms = [("floor", DRIFT, "Beam + prior floor (noiseless data)", "-"),
             ("total", INK, "Full data (floor + 1/f + white)", "none"),
             ("noiseonly", THIRD, "Noise alone (1/f + white)", "-")]
-    fig, axes = plt.subplots(1, 2, figsize=(11.6, 4.9), sharey=True)
+    fig, axes = plt.subplots(1, 2, figsize=_figsize("hi_ablation", (11.6, 4.9)), sharey=True)
 
     for ax, s in zip(axes, ("drift", "raster")):
         _tidy(ax)
@@ -257,29 +320,23 @@ def fig_ablation(abl):
                loc="upper left", bbox_to_anchor=(0.045, 0.90), ncols=3,
                handlelength=2.2, columnspacing=2.4)
 
-    fig.suptitle("The blocker is the floor, not the noise",
-                 color=INK, fontsize=13, fontweight="semibold", x=0.045,
-                 ha="left", y=1.03)
-    fig.text(0.045, 0.965,
+    _title(fig, "The blocker is the floor, not the noise",
              "Noiseless and full data coincide to 0.2% in power — the rings sit "
              "on the line. Noise alone is ~38$\\times$ below the floor, so it is "
              "irrelevant to HI recovery.",
-             color=INK2, fontsize=9.4, ha="left")
+           x=0.045, y_title=1.03, y_sub=0.965, override=text)
     fig.tight_layout(rect=(0, 0, 1, 0.84))
-    out = os.path.join(FIGDIR, "hi_ablation.png")
-    fig.savefig(out, bbox_inches="tight")
-    plt.close(fig)
-    return out
+    return _save(fig, "hi_ablation")
 
 
 # ---------------------------------------------------------------------------
 # Figure 4 -- why the drift fails
 # ---------------------------------------------------------------------------
 
-def fig_frequency_structure(exp):
+def fig_frequency_structure(exp, text=None):
     freqs = exp["freqs"]
     k = exp["drift_k"]
-    fig, axes = plt.subplots(1, 2, figsize=(12.4, 5.0),
+    fig, axes = plt.subplots(1, 2, figsize=_figsize("hi_frequency_structure", (12.4, 5.0)),
                              gridspec_kw=dict(width_ratios=[1, 1.15]))
 
     # (a) radial power retained by the map-maker
@@ -337,20 +394,14 @@ def fig_frequency_structure(exp):
     ax.grid(axis="x", visible=False)
     ax.legend(loc="upper left", bbox_to_anchor=(0.015, 0.99))
 
-    fig.suptitle("Why the drift fails: it turns HI into something that looks like foreground",
-                 color=INK, fontsize=13, fontweight="semibold", x=0.045,
-                 ha="left", y=1.01)
-    fig.text(0.045, 0.945,
+    _title(fig, "Why the drift fails: it turns HI into something that looks like foreground",
              "The drift keeps only 38% of the frequency-varying HI while "
              "amplifying the frequency-coherent part 3.14$\\times$ "
              "(raster: 0.53 and 1.11$\\times$). With ~17 measured modes it "
              "projects HI onto a nearly frequency-constant subspace.",
-             color=INK2, fontsize=9.4, ha="left")
+           x=0.045, y_title=1.01, y_sub=0.945, override=text)
     fig.tight_layout(rect=(0, 0, 1, 0.90))
-    out = os.path.join(FIGDIR, "hi_frequency_structure.png")
-    fig.savefig(out, bbox_inches="tight")
-    plt.close(fig)
-    return out
+    return _save(fig, "hi_frequency_structure")
 
 
 # ---------------------------------------------------------------------------
@@ -394,7 +445,7 @@ def _mapshow(ax, img, cmap, vmin, vmax, title, extent):
     return im
 
 
-def fig_patch_maps(exp, nside=64, channel=None):
+def fig_patch_maps(exp, nside=64, channel=None, text=None):
     """Figure 5 -- the field, and which pixels each strategy actually solves."""
     import healpy as hp
     from ska_common import gdsm_equatorial_sky_model
@@ -409,7 +460,7 @@ def fig_patch_maps(exp, nside=64, channel=None):
     half = reso * xsize / 60.0 / 2.0
     extent = (-half, half, -half, half)
 
-    fig, axes = plt.subplots(1, 2, figsize=(11.6, 4.6), layout="constrained")
+    fig, axes = plt.subplots(1, 2, figsize=_figsize("hi_patch_maps", (11.6, 4.6)), layout="constrained")
 
     # (a) the sky this experiment actually observes
     allpix = np.union1d(np.asarray(ops["drift"].pixel_indices),
@@ -448,22 +499,17 @@ def fig_patch_maps(exp, nside=64, channel=None):
     for ax in axes:                 # the patch is a wide strip; square axes
         ax.set_ylim(-11, 11)        # would be mostly empty page
 
-    fig.suptitle("The field and the two footprints", color=INK, fontsize=13,
-                 fontweight="semibold", x=0.01, ha="left", y=1.13)
-    fig.text(0.01, 1.04,
+    _title(fig, "The field and the two footprints",
              "Gnomonic projection about RA 158.3$\\degree$, Dec +9.4$\\degree$. The drift's "
              "patch is a stack of three constant-Dec strips; the raster's azimuth "
              "throw widens it 2.2$\\times$ and wholly contains it "
              f"({len(ops['raster'].pixel_indices)} px against "
              f"{len(ops['drift'].pixel_indices)}).",
-             color=INK2, fontsize=9.4, ha="left")
-    out = os.path.join(FIGDIR, "hi_patch_maps.png")
-    fig.savefig(out, bbox_inches="tight")
-    plt.close(fig)
-    return out
+           x=0.01, y_title=1.13, y_sub=1.04, override=text)
+    return _save(fig, "hi_patch_maps")
 
 
-def fig_hi_maps(exp, nside=64, nmodes=4):
+def fig_hi_maps(exp, nside=64, nmodes=4, text=None):
     """Figure 6 -- the HI itself, in the map domain.
 
     The frequency mean is removed from every panel. That is deliberate: the
@@ -489,7 +535,7 @@ def fig_hi_maps(exp, nside=64, nmodes=4):
     clean = demean(A.pca_clean(exp["raster_data_cube"], nmodes))[ch] * 1e3
 
     v = float(np.nanpercentile(np.abs(true), 99))
-    fig, axes = plt.subplots(1, 4, figsize=(16.2, 3.9), layout="constrained")
+    fig, axes = plt.subplots(1, 4, figsize=_figsize("hi_maps", (16.2, 3.9)), layout="constrained")
     panels = [(true, "True HI", v), (dmap, "Drift, map-made", v),
               (rmap, "Raster, map-made", v),
               (clean, f"Raster, cleaned data ({nmodes} modes)",
@@ -511,32 +557,26 @@ def fig_hi_maps(exp, nside=64, nmodes=4):
     cb2.ax.tick_params(labelsize=8)
     axes[0].set_ylabel("offset  [deg]", fontsize=8.5)
 
-    fig.suptitle("The HI in the map domain, and why you cannot see it",
-                 color=INK, fontsize=13, fontweight="semibold", x=0.01,
-                 ha="left", y=1.10)
-    fig.text(0.01, 1.02,
+    _title(fig, "The HI in the map domain, and why you cannot see it",
              f"Channel {ch} ({freqs[ch]:.1f} MHz), frequency mean removed. First "
              "three share a colour scale; the fourth needs its own, and that is "
              "the result — the cleaned map is residual, not signal.",
-             color=INK2, fontsize=9.4, ha="left")
-    out = os.path.join(FIGDIR, "hi_maps.png")
-    fig.savefig(out, bbox_inches="tight")
-    plt.close(fig)
-    return out
+           x=0.01, y_title=1.10, y_sub=1.02, override=text)
+    return _save(fig, "hi_maps")
 
 
 # ---------------------------------------------------------------------------
 # Figure 7 -- how compressible is each component?
 # ---------------------------------------------------------------------------
 
-def fig_rank(rank, nshow=20):
+def fig_rank(rank, nshow=20, text=None):
     """Eigenspectra of the channel-channel covariance.
 
     The question this answers is whether swapping PCA for ICA/GMCA/NMF could
     help. All of them remove a rank-N subspace, so what matters is how many
     modes each component actually occupies.
     """
-    fig, axes = plt.subplots(1, 2, figsize=(12.4, 4.8), layout="constrained")
+    fig, axes = plt.subplots(1, 2, figsize=_figsize("hi_rank", (12.4, 4.8)), layout="constrained")
     series = [("drift_w_fg", INK, "GDSM foreground", "-"),
               ("drift_w_floor", DRIFT, "beam + prior floor, drift", "-"),
               ("raster_w_floor", RASTER, "beam + prior floor, raster", "-"),
@@ -569,18 +609,89 @@ def fig_rank(rank, nshow=20):
     ax.set_ylabel("cumulative fraction of variance")
     ax.set_title("How many modes each component occupies", color=INK, pad=6)
 
-    fig.suptitle("A different cleaning basis cannot help: the floor is already low-rank",
-                 color=INK, fontsize=13, fontweight="semibold", x=0.01,
-                 ha="left", y=1.10)
-    fig.text(0.01, 1.02,
+    _title(fig, "A different cleaning basis cannot help: the floor is already low-rank",
              "The foreground is rank 1 — one mode removes it. The floor needs 6 "
              "(drift) or 2 (raster). The HI needs 23$-$25 of 32: it is the one "
              "component that is not compressible.",
-             color=INK2, fontsize=9.4, ha="left")
-    out = os.path.join(FIGDIR, "hi_rank.png")
-    fig.savefig(out, bbox_inches="tight")
-    plt.close(fig)
-    return out
+           x=0.01, y_title=1.10, y_sub=1.02, override=text)
+    return _save(fig, "hi_rank")
+
+
+def fig_eigenvectors(rank, nmodes=4, nbars=6, text=None):
+    """Figure 8 -- the spectral shapes, and how much each one carries.
+
+    "Rank" is abstract until you look at the eigenvectors: these ARE the shapes
+    each component is built from. The foreground's first mode is a clean power
+    law; the floor's get progressively wigglier; the HI's are noise-like from
+    the start, which is why it needs ~25 of them.
+
+    The lower row is the point of the figure. On a LINEAR axis the foreground
+    has one bar and then nothing -- mode 2 is 2e-8 of mode 1, which is a blank
+    column, not a short one. That is what rank 1 looks like, and it is the
+    thing the log-scale eigenspectrum in fig_rank cannot show.
+    """
+    from matplotlib.colors import LinearSegmentedColormap
+    ramp = LinearSegmentedColormap.from_list(
+        "blues", ["#9ec5f4", "#5598e7", "#2a78d6", "#184f95", "#0d366b"])
+    freqs = rank["freqs"]
+    panels = [("drift_V_fg", "drift_w_fg", INK,
+               "GDSM foreground\n(rank 1)"),
+              ("drift_V_floor", "drift_w_floor", DRIFT,
+               "Beam + prior floor, drift\n(rank 6)"),
+              ("drift_V_hi", "drift_w_hi", THIRD,
+               "HI, map-made\n(rank 23)")]
+    fig, axes = plt.subplots(2, 3, figsize=_figsize("hi_eigenvectors", (13.2, 7.0)),
+                             sharex="row", layout="constrained")
+
+    for col, (vkey, wkey, colour, title) in enumerate(panels):
+        # --- top: the shapes -------------------------------------------
+        ax = _tidy(axes[0, col])
+        V = rank[vkey]
+        for m in range(min(nmodes, V.shape[1])):
+            v = V[:, m]
+            # Sign of an eigenvector is arbitrary; fix it so the panels are
+            # comparable rather than flipping at random between components.
+            if v[np.argmax(np.abs(v))] < 0:
+                v = -v
+            ax.plot(freqs, v, color=ramp(m / max(nmodes - 1, 1)), lw=1.8,
+                    label=f"mode {m + 1}")
+        ax.axhline(0.0, color=BASELINE, lw=1.0)
+        ax.set_xlabel("frequency  [MHz]")
+        ax.set_title(title, color=INK, pad=6, fontsize=10)
+
+        # --- bottom: how much each shape carries -----------------------
+        ax = _tidy(axes[1, col])
+        w = rank[wkey][:nbars]
+        ax.bar(np.arange(1, len(w) + 1), w, color=colour, width=0.62,
+               edgecolor=SURFACE, linewidth=1.4, zorder=3)
+        ax.set_ylim(0, 1.12)
+        ax.set_xticks(np.arange(1, len(w) + 1))
+        ax.set_xlabel("eigenmode")
+        ax.grid(axis="x", visible=False)
+        # Spell out the invisible bars rather than leaving them a mystery.
+        if w[1] < 1e-3:
+            ax.annotate(f"modes 2$-${len(w)} total\n"
+                        f"{w[1:].sum():.0e} of mode 1",
+                        (2.6, 0.5), ha="left", va="center",
+                        fontsize=8.6, color=INK2)
+        else:
+            for i, v in enumerate(w[1:], start=2):
+                ax.annotate(f"{v:.2f}", (i, v), textcoords="offset points",
+                            xytext=(0, 3), ha="center", fontsize=7.6,
+                            color=INK2)
+    axes[0, 0].set_ylabel("eigenvector amplitude  (arb.)")
+    axes[0, 0].legend(loc="upper right", fontsize=8.4, ncols=2)
+    axes[1, 0].set_ylabel("$\\lambda_i\\,/\\,\\lambda_1$   (linear)")
+
+    _title(fig, "What the components are actually made of",
+             "Top: leading eigenvectors of the channel-channel covariance. The "
+             "foreground's mode 1 is a single smooth power law; its modes 2$-$4 look "
+             "like structure but are floating-point noise.\n"
+             "Bottom: how much each mode carries, on a LINEAR axis — the "
+             "foreground's modes 2+ are a blank column, not a short one. That is "
+             "what rank 1 looks like.",
+           x=0.01, y_title=1.11, y_sub=1.02, override=text)
+    return _save(fig, "hi_eigenvectors")
 
 
 def main():
@@ -594,6 +705,7 @@ def main():
         print("!! ablation results missing -- run ska_hi_ablation.py", flush=True)
     if rk is not None:
         made.append(fig_rank(rk))
+        made.append(fig_eigenvectors(rk))
     else:
         print("!! rank results missing -- run ska_hi_rank.py", flush=True)
     for m in made:

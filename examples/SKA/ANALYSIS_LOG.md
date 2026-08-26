@@ -586,6 +586,11 @@ map-made HI response. Modes needed to carry a given fraction of the variance:
 <p class="caption"><em>Figure 7 — left: eigenspectrum of the channel-channel covariance, normalised to the first mode. Right: cumulative variance. The foreground falls off a cliff after mode 1; the floors decay fast; the HI decays slowly and is still climbing at mode 20.</em></p>
 </div>
 
+<div class="figblock">
+<img class="figure" src="figures/hi_eigenvectors.png" alt="The spectral shapes, and how much each carries">
+<p class="caption"><em>Figure 8 — top: the leading eigenvectors, i.e. the spectral shapes each component is built from. The foreground's mode 1 is a single smooth power law; its modes 2--4 look like structure but carry $\lambda/\lambda_1\sim10^{-17}$ and are floating-point noise. Bottom: how much each mode carries, on a <em>linear</em> axis. The foreground's modes 2--6 total $2\times10^{-8}$ of mode 1 — a blank column rather than a short one, which is what rank 1 looks like. The floor is down to 0.08 by mode 2; the HI is still at 0.51 by mode 6.</em></p>
+</div>
+
 **Result 1: the foreground is rank 1.** Over a 50 MHz block the GDSM sky is a
 single spectral shape — $\lambda_{10}/\lambda_1 = 3\times10^{-17}$. One PCA mode
 removes essentially all of it, and the ablation agrees: after **1** mode the
