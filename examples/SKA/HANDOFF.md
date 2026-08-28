@@ -605,6 +605,53 @@ The rest of the queue is the *improvement* work.
    were deliberately left alone -- the paper is being written by hand from
    here.
 
+0e. **1/f for the paper — wanted 2026-08-26, not yet done.** The intent is a
+   paper-ready 1/f section: the existing "1/f is not the limiter" finding, made
+   presentable and pushed a little further.
+
+   *What already exists, and where it falls short.* The quadrature split of the
+   galactic-plane drift residual — 21.4 K beam + prior floor, 7.3 K white,
+   4.8 K 1/f, closing to <0.1% — plus the off-plane share (96-100% floor,
+   5-8% 1/f) and the scan-speed argument (1/f is 27% of the white term, so
+   removing it entirely buys 1.6%; 6 arcmin/s already puts sky at 3.33 mHz,
+   ~140x below the drift's fundamental). All of it is from experiments 001-003
+   and is quoted as a **map-domain residual in kelvin, on the full patch, at
+   native per-channel resolution, without HI**. None of it is in the currency
+   the rest of the paper now uses: T(k_par), residual/HI, common resolution,
+   119 interior pixels. That mismatch is the main reason it is not paper-ready,
+   not the physics.
+
+   *The cheap way to fix it.* `ska_hi_ablation.py` already has a `noiseonly`
+   arm, but it lumps 1/f and white together. The RNG replay (`replay_noise`)
+   hands back `gain` and `white` separately, so splitting that arm into
+   `gainonly` and `whiteonly` is two more solves per channel — the operators
+   and TODs are cached, so it is a ~10 min re-run, and it lands a k-resolved
+   1/f budget on exactly the same footing as Figures 1-3. That single change
+   probably carries the section on its own.
+
+   *Where "build on it" could go, in rough order of value.*
+   (i) **Sensitivity to the 1/f parameters.** Everything so far uses one
+       parameter set, `GAIN_PARAMS = [1.335e-5, 1.099e-3, 2]` (f0, fc, alpha)
+       with `WHITE_VAR = 2.5e-6`, and one realisation per pass. A scan over the
+       knee `fc` and slope `alpha` would turn "1/f is not the limiter" into
+       "1/f is not the limiter unless the knee is Nx worse", which is a far
+       stronger statement and the one a referee will ask for.
+   (ii) **Scatter over seeds.** Every 1/f number is a single realisation. A
+       handful of seeds gives error bars and costs only re-solves.
+   (iii) **Correlated 1/f across channels.** The current model draws gain per
+       pass, common to all channels by construction of the replay. Real
+       receiver gain fluctuations have a frequency structure that is precisely
+       what determines whether PCA can remove them -- worth at least a sentence
+       on what is and is not modelled.
+
+   *Two traps when writing it up.* The **+36% high-pass penalty is the
+   galactic-plane drift**; off-plane at nside 64 the same 2 mHz filter helped
+   slightly (-9.7%), and HP numbers should not be quoted for the raster at all
+   (a temporal Butterworth on a raster is not standard practice and 2 mHz is
+   not optimised for it). And `beam_crossing_freq_hz` bounds the *support* of
+   the sky signal, not where its power lives -- do not compare it against a
+   filter cutoff.
+
 1. **Depth-matched raster done properly** — narrow the azimuth throw so the scan
    natively selects ~321 px, instead of the analytic noise scaling used above.
 2. **More crossing angles** — currently only two (~75° apart). More elevations
