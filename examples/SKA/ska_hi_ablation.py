@@ -12,6 +12,15 @@ Three arms, all with the HI injected:
 * ``total``     -- the full data, with 1/f gain and white noise.
 * ``noiseonly`` -- the noise contribution alone, as the difference between a
                    noisy and a noiseless solve of the foreground.
+* ``gainonly``  -- the 1/f gain contribution alone, same difference with only
+                   ``(1 + g)`` applied.
+* ``whiteonly`` -- the white contribution alone, only ``(1 + w)`` applied.
+
+The last two split ``noiseonly`` so the 1/f term can be quoted on the same
+footing as everything else. The noise is multiplicative, ``(1 + g)(1 + w)``, so
+the split is exact only up to the ``g*w`` cross term; both draws are ~1e-3, so
+that term is ~1e-6 relative and ``gainonly + whiteonly`` reproduces
+``noiseonly`` to well below plotting precision. The run prints the check.
 
 If ``floor`` and ``total`` agree, the noise is irrelevant to HI recovery and
 the blocker is structural. Results are saved k-resolved for every mode count so
@@ -43,7 +52,7 @@ import ska_hi_analysis as A
 from ska_common import gdsm_equatorial_sky_model
 from ska_hi_mock import build_hi_cube, project_to_healpix
 
-ARMS = ("floor", "total", "noiseonly")
+ARMS = ("floor", "total", "noiseonly", "gainonly", "whiteonly")
 MARGIN_DEG = 3.0
 
 
@@ -92,10 +101,16 @@ def main():
                 A.solve(mm, [(c + h) * (1 + g[j]) * (1 + w[j])
                              for j, (c, h) in enumerate(zip(clean, hitod))],
                         truth, mu)[sel])
+            quiet = A.solve(mm, clean, truth, mu)[sel]
             noisy = A.solve(mm, [c * (1 + g[j]) * (1 + w[j])
                                  for j, c in enumerate(clean)], truth, mu)[sel]
-            quiet = A.solve(mm, clean, truth, mu)[sel]
+            gainy = A.solve(mm, [c * (1 + g[j])
+                                 for j, c in enumerate(clean)], truth, mu)[sel]
+            whitey = A.solve(mm, [c * (1 + w[j])
+                                  for j, c in enumerate(clean)], truth, mu)[sel]
             cubes["noiseonly"].append(noisy - quiet)
+            cubes["gainonly"].append(gainy - quiet)
+            cubes["whiteonly"].append(whitey - quiet)
             hi_mm.append(A.response(mm, hi, truth)[sel])
             if (i + 1) % 8 == 0:
                 print(f"  [{strategy}] {i + 1}/{len(freqs)} "
@@ -103,6 +118,11 @@ def main():
 
         hi_mm = np.asarray(hi_mm)
         cubes = {a: np.asarray(c) for a, c in cubes.items()}
+        # The 1/f + white split is exact bar the g*w cross term; check it.
+        resid = cubes["gainonly"] + cubes["whiteonly"] - cubes["noiseonly"]
+        print(f"  [{strategy}] gain+white vs noiseonly: max residual "
+              f"{np.abs(resid).max() / np.abs(cubes['noiseonly']).max():.2e} "
+              f"of the noise amplitude", flush=True)
 
         # The same three conventions run_hi_experiment.py stores, so figure 3
         # can be read alongside figure 2 instead of against it:

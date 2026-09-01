@@ -605,52 +605,70 @@ The rest of the queue is the *improvement* work.
    were deliberately left alone -- the paper is being written by hand from
    here.
 
-0e. **1/f for the paper — wanted 2026-08-26, not yet done.** The intent is a
-   paper-ready 1/f section: the existing "1/f is not the limiter" finding, made
-   presentable and pushed a little further.
+0e. **DONE 2026-08-26: the 1/f results are k-resolved and bounded.** Three
+   pieces, all on the common-resolution interior pixels at 4 modes removed, so
+   they sit on the same footing as Figures 1-3.
 
-   *What already exists, and where it falls short.* The quadrature split of the
-   galactic-plane drift residual — 21.4 K beam + prior floor, 7.3 K white,
-   4.8 K 1/f, closing to <0.1% — plus the off-plane share (96-100% floor,
-   5-8% 1/f) and the scan-speed argument (1/f is 27% of the white term, so
-   removing it entirely buys 1.6%; 6 arcmin/s already puts sky at 3.33 mHz,
-   ~140x below the drift's fundamental). All of it is from experiments 001-003
-   and is quoted as a **map-domain residual in kelvin, on the full patch, at
-   native per-channel resolution, without HI**. None of it is in the currency
-   the rest of the paper now uses: T(k_par), residual/HI, common resolution,
-   119 interior pixels. That mismatch is the main reason it is not paper-ready,
-   not the physics.
+   *(i) The ablation splits the noise.* `ska_hi_ablation.py` now carries
+   `gainonly` and `whiteonly` alongside `noiseonly`. The noise is
+   multiplicative, so the split is exact bar the `g*w` cross term; the run
+   prints the check and it closes to 1.9e-4 (drift) / 2.3e-4 (raster) of the
+   noise amplitude.
 
-   *The cheap way to fix it.* `ska_hi_ablation.py` already has a `noiseonly`
-   arm, but it lumps 1/f and white together. The RNG replay (`replay_noise`)
-   hands back `gain` and `white` separately, so splitting that arm into
-   `gainonly` and `whiteonly` is two more solves per channel — the operators
-   and TODs are cached, so it is a ~10 min re-run, and it lands a k-resolved
-   1/f budget on exactly the same footing as Figures 1-3. That single change
-   probably carries the section on its own.
+   | 4 modes, common resolution | floor | total | 1/f | white |
+   |---|---|---|---|---|
+   | drift | 336.3x | 349.4x | **4.0x** | 5.2x |
+   | raster | 22.7x | 24.0x | **0.4x** | 2.1x |
 
-   *Where "build on it" could go, in rough order of value.*
-   (i) **Sensitivity to the 1/f parameters.** Everything so far uses one
-       parameter set, `GAIN_PARAMS = [1.335e-5, 1.099e-3, 2]` (f0, fc, alpha)
-       with `WHITE_VAR = 2.5e-6`, and one realisation per pass. A scan over the
-       knee `fc` and slope `alpha` would turn "1/f is not the limiter" into
-       "1/f is not the limiter unless the knee is Nx worse", which is a far
-       stronger statement and the one a referee will ask for.
-   (ii) **Scatter over seeds.** Every 1/f number is a single realisation. A
-       handful of seeds gives error bars and costs only re-solves.
-   (iii) **Correlated 1/f across channels.** The current model draws gain per
-       pass, common to all channels by construction of the replay. Real
-       receiver gain fluctuations have a frequency structure that is precisely
-       what determines whether PCA can remove them -- worth at least a sentence
-       on what is and is not modelled.
+   For the raster 1/f alone sits *below the HI*. That is much stronger than the
+   old "5-8% of the residual" and it is in the paper's own units.
+
+   *(ii) How much worse would 1/f have to be?* `ska_hi_1f_scan.py` (default
+   `--mode knee`) scans the knee -- where 1/f gain power crosses white -- which
+   is at **0.95 mHz** for `GAIN_PARAMS`. Note where that sits: the drift's
+   fundamental (0.28 mHz) is *below* the knee, the raster's sweep (3.33 mHz)
+   *above* it. Knee at which 1/f reaches the floor:
+
+   | | alpha 1.5 | alpha 2.0 | alpha 2.5 |
+   |---|---|---|---|
+   | drift | 316 mHz (333x) | 80 mHz (84x) | 33 mHz (35x) |
+   | raster | 184 mHz (194x) | 57 mHz (60x) | 21 mHz (22x) |
+
+   **Quote the raster at alpha 2.5: 22x, the hardest case to argue with.**
+
+   *Do not present the knee axis as six measurements.* Scaling one realisation
+   scales the whole pipeline linearly -- `solve` is affine and differences out,
+   and `pca_clean` is scale-invariant since scaling a cube scales its
+   covariance and leaves the eigenvectors alone -- so
+   `ratio ~ knee**(alpha/2)` exactly, verified against the grid to 2e-4. The
+   figure draws lines for the scaling and a filled marker only at the measured
+   anchor. The genuinely measured content is three points per panel.
+
+   *(iii) Does the cut-off matter?* `--mode cutoff` scans `w_c`, which changes
+   the correlation *shape*, so nothing factors out and every point is a fresh
+   draw. Fiducial `w_c` = 0.175 mHz, a 1.6 h timescale -- about one pass.
+   Extending the spectrum down to 16 h grows the gain rms 2.6x and moves the
+   residual 12% (drift 3.98 -> 4.44x). **Slow gain drift is degenerate with the
+   foreground**: it multiplies a rank-1 component, so the cleaning removes it
+   too. That is the answer to "you assumed a convenient cut-off". Above the
+   fiducial the residual falls, but only because raising `w_c` deletes 1/f
+   power (rms drops 6x) -- do not read that as a result.
+
+   *Known soft spot.* The two lowest-`w_c` raster points are non-monotonic in
+   rms (3.28e-4 then 3.80e-4) where the drift's are clean: a 3 h observation
+   barely samples a 16 h correlation time, so a single draw of the lowest modes
+   is not representative. Averaging a few seeds there (~5 min) would give error
+   bars; the flat trend itself is not in doubt.
+
+   *Still open from the original note:* scatter over seeds generally, and a
+   sentence on what frequency structure the gain model does and does not have
+   (the draw is common to all channels by construction of the replay).
 
    *Two traps when writing it up.* The **+36% high-pass penalty is the
    galactic-plane drift**; off-plane at nside 64 the same 2 mHz filter helped
-   slightly (-9.7%), and HP numbers should not be quoted for the raster at all
-   (a temporal Butterworth on a raster is not standard practice and 2 mHz is
-   not optimised for it). And `beam_crossing_freq_hz` bounds the *support* of
-   the sky signal, not where its power lives -- do not compare it against a
-   filter cutoff.
+   slightly (-9.7%), and HP numbers should not be quoted for the raster at all.
+   And `beam_crossing_freq_hz` bounds the *support* of the sky signal, not
+   where its power lives -- do not compare it against a filter cutoff.
 
 1. **Depth-matched raster done properly** — narrow the azimuth throw so the scan
    natively selects ~321 px, instead of the analytic noise scaling used above.

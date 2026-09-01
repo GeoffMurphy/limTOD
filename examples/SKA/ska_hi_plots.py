@@ -290,10 +290,20 @@ def fig_ablation(abl, text=None, tag="cr_"):
         tag = ""
     nmodes = [int(n) for n in abl["nmodes_grid"]]
     # key, colour, label, linestyle, marker, markersize -- one marker per line
-    # so the three arms stay separable in greyscale and for CVD readers.
+    # so the arms stay separable in greyscale and for CVD readers.
+    #
+    # FOURTH is categorical slot 4 of the validated palette (the next free slot:
+    # slot 2, orange, is reserved for "raster" across this figure set, so using
+    # it for a noise term inside a per-strategy panel would clash). Checked with
+    # the skill's validator ported to Python -- blue/aqua/yellow on all pairs:
+    # CVD dE 9.1 (target 8), normal-vision dE 22.9 (floor 15). Yellow's contrast
+    # against the surface is 2.11, a WARN, which is why every line is legended
+    # AND carries its own marker rather than resting on hue.
+    FOURTH = "#eda100"
     arms = [("floor", DRIFT, "Beam + prior floor (noiseless data)", "-", "o", 5),
             ("total", INK, "Full data (floor + 1/f + white)", "none", "x", 9),
-            ("noiseonly", THIRD, "Noise alone (1/f + white)", "-", "^", 6)]
+            ("gainonly", THIRD, "1/f gain alone", "-", "^", 6),
+            ("whiteonly", FOURTH, "White noise alone", "-", "s", 5)]
     fig, axes = plt.subplots(1, 2, figsize=_figsize("hi_ablation", (11.6, 4.9)), sharey=True)
 
     for ax, s in zip(axes, ("drift", "raster")):
@@ -327,13 +337,13 @@ def fig_ablation(abl, text=None, tag="cr_"):
                                mec=c, mew=1.6, lw=(0 if ls == "none" else 2),
                                label=lab)
                         for a, c, lab, ls, mk, ms in arms],
-               loc="upper left", bbox_to_anchor=(0.045, 0.90), ncols=3,
-               handlelength=2.2, columnspacing=2.4)
+               loc="upper left", bbox_to_anchor=(0.045, 0.90), ncols=4,
+               handlelength=2.0, columnspacing=1.8)
 
-    _title(fig, "The blocker is the floor, not the noise",
-             "Noiseless and full data track each other to a few per cent — the "
-             "rings sit on the line. Noise alone is 10–50$\\times$ below the "
-             "floor, so it is irrelevant to HI recovery.",
+    _title(fig, "The blocker is the floor, and 1/f is the smallest term in it",
+             "Noiseless and full data track each other to a few per cent. Split "
+             "apart, 1/f sits below the white noise, which is itself far below "
+             "the floor — so neither is what limits HI recovery.",
            x=0.045, y_title=1.03, y_sub=0.965, override=text)
     fig.tight_layout(rect=(0, 0, 1, 0.84))
     return _save(fig, "hi_ablation")
@@ -697,6 +707,115 @@ def fig_rank(rank, nshow=20, text=None):
              "component that is not compressible.",
            x=0.01, y_title=1.10, y_sub=1.02, override=text)
     return _save(fig, "hi_rank")
+
+
+def fig_1f_scan(scan, abl=None, text=None, cutoff=None):
+    """Figure 9 -- how bad would 1/f have to be before it mattered?
+
+    The ablation fixes 1/f at one parameter set; this asks what it would take
+    for that term to reach the beam + prior floor. x is the knee frequency --
+    where the 1/f gain power crosses the white gain power -- so the fiducial
+    model is one point on it and everything to the right is "worse than
+    assumed". The floor is drawn as the thing 1/f would have to reach.
+    """
+    knees = np.asarray(scan["knees_mhz"], float)
+    alphas = [float(a) for a in scan["alphas"]]
+    nm = int(scan["nmodes"])
+    # Slope is an ordinal family, not an identity: one hue, light to dark,
+    # rather than three categorical slots that would imply unrelated series.
+    ramp = ["#86b6ef", "#2a78d6", "#184f95"]
+    nrow = 2 if cutoff is not None else 1
+    fig, axes = plt.subplots(nrow, 2, squeeze=False,
+                             figsize=_figsize("hi_1f_scan",
+                                              (11.6, 4.9 * nrow)))
+
+    for ax, s in zip(axes[0], ("drift", "raster")):
+        _tidy(ax)
+        # Honest encoding: the knee axis is an exact scaling, not a set of
+        # independent runs. Scaling one realisation scales the whole pipeline
+        # linearly -- `solve` is affine and differences out, and `pca_clean` is
+        # scale-invariant (scaling a cube scales its covariance, leaving the
+        # eigenvectors alone) -- so ratio ~ knee**(alpha/2) exactly, verified
+        # against the measured grid to 2e-4. So: LINE for the scaling, and a
+        # filled MARKER only at the fiducial knee, which is the measured point.
+        kfid = float(scan["fiducial_knee_mhz"])
+        for a, colour in zip(alphas, ramp):
+            y = np.array([scan[f"{s}_ratio_a{a}_k{k}"] for k in knees], float)
+            ax.plot(knees, y, color=colour, lw=2.0, zorder=3,
+                    label=f"$\\alpha = {a}$")
+            j = int(np.argmin(np.abs(knees - kfid)))
+            ax.plot([knees[j]], [y[j]], color=colour, marker="o", ms=7,
+                    mfc=colour, mec=SURFACE, mew=1.6, zorder=5)
+        # What 1/f is being compared against: the floor at the same mode count.
+        if abl is not None:
+            p_hi = abl[f"{s}_cr_p_hi"]
+            floor = np.median(np.sqrt(abl[f"{s}_cr_floor_{nm}"] / p_hi))
+            ax.axhline(floor, color=INK, lw=1.4, zorder=4)
+            ax.annotate(f"beam + prior floor ({floor:.0f}$\\times$)",
+                        (knees[0], floor), textcoords="offset points",
+                        xytext=(2, -13), color=INK, fontsize=8.8)
+        ax.axhline(1.0, color=BASELINE, lw=1.0, ls=(0, (4, 3)), zorder=2)
+        ax.annotate("HI level", (knees[0], 1.0), textcoords="offset points",
+                    xytext=(2, 4), color=MUTED, fontsize=8.4)
+        # The fiducial model, and the frequency the raster actually scans at.
+        ax.axvline(float(scan["fiducial_knee_mhz"]), color=MUTED, lw=1.0,
+                   ls=(0, (1, 2)), zorder=1)
+        ax.annotate("assumed", (float(scan["fiducial_knee_mhz"]), ax.get_ylim()[1]),
+                    textcoords="offset points", xytext=(3, -11),
+                    color=MUTED, fontsize=8.4, rotation=90, va="top")
+        ax.set_xscale("log"); ax.set_yscale("log")
+        # Margin either side: the measured points sit at the left edge of the
+        # grid and would otherwise be clipped by the spine.
+        ax.set_xlim(knees.min() * 0.7, knees.max() * 1.4)
+        ax.set_xlabel("1/f knee frequency  [mHz]")
+        ax.set_title(STRAT[s]["label"], color=STRAT[s]["color"], pad=6,
+                     fontweight="semibold")
+    axes[0, 0].set_ylabel(f"cleaned 1/f residual / HI   ({nm} modes removed)")
+
+    if cutoff is not None:
+        # w_c changes the SHAPE of the correlation, so unlike the knee axis
+        # nothing factors out and every point here is an independent draw.
+        wcs = np.asarray(cutoff["cutoffs_mhz"], float)
+        wc_fid = float(cutoff["fiducial_wc_mhz"])
+        for ax, s in zip(axes[1], ("drift", "raster")):
+            _tidy(ax)
+            y = [cutoff[f"{s}_ratio_wc{w}"] for w in wcs]
+            ax.plot(wcs, y, color=DRIFT if s == "drift" else RASTER,
+                    marker="o", ms=6, mfc=SURFACE, mew=1.8, zorder=3)
+            if abl is not None:
+                p_hi = abl[f"{s}_cr_p_hi"]
+                floor = np.median(np.sqrt(abl[f"{s}_cr_floor_{nm}"] / p_hi))
+                ax.axhline(floor, color=INK, lw=1.4, zorder=4)
+                ax.annotate(f"floor ({floor:.0f}$\\times$)", (wcs[0], floor),
+                            textcoords="offset points", xytext=(2, -13),
+                            color=INK, fontsize=8.8)
+            ax.axhline(1.0, color=BASELINE, lw=1.0, ls=(0, (4, 3)), zorder=2)
+            ax.axvline(wc_fid, color=MUTED, lw=1.0, ls=(0, (1, 2)), zorder=1)
+            ax.annotate("assumed", (wc_fid, ax.get_ylim()[1]),
+                        textcoords="offset points", xytext=(3, -11),
+                        color=MUTED, fontsize=8.4, rotation=90, va="top")
+            ax.set_xscale("log"); ax.set_yscale("log")
+            ax.set_xlim(wcs.min() * 0.7, wcs.max() * 1.4)
+            ax.set_xlabel("1/f low-frequency cut-off $\\omega_c$  [mHz]")
+        axes[1, 0].set_ylabel("cleaned 1/f residual / HI")
+    # Lower right: the curves run bottom-left to top-right, so upper left is
+    # where the "assumed" marker lives and lower right is the free corner.
+    axes[0, 0].legend(loc="lower right", fontsize=8.6)
+
+    sub = ("Top: knee = where 1/f gain power crosses white. Filled circles are "
+           "measured, one per slope; lines are the exact "
+           "$\\propto\\,$knee$^{\\alpha/2}$ scaling, since the pipeline is linear "
+           "in the noise amplitude.")
+    if cutoff is not None:
+        sub += ("\nBottom: the low-frequency cut-off, every point an "
+                "independent draw. Left of the assumed value the curve is flat "
+                "while the gain rms grows 2.6$\\times$ — power added on "
+                "timescales longer than a pass multiplies a rank-1 foreground, "
+                "so the cleaning takes it out too.")
+    _title(fig, "1/f would have to be orders of magnitude worse to matter", sub,
+           x=0.045, y_title=1.03, y_sub=0.965, override=text)
+    fig.tight_layout(rect=(0, 0, 1, 0.86 if nrow == 1 else 0.93))
+    return _save(fig, "hi_1f_scan")
 
 
 def fig_eigenvectors(rank, nmodes=4, nbars=6, text=None):
