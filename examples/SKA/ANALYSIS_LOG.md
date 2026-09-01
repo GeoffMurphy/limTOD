@@ -712,3 +712,127 @@ against 24x raster, and both of those are already common-resolution numbers —
 but Figure 4 and its subtitle still quote 0.38/3.14 from the as-run cubes and
 need the same treatment before the paper uses them.
 
+
+### 2026-08-26 — the 1/f term, in the paper's own units and with a bound
+
+The series has said "1/f is not the limiter" since experiment 003, on the
+strength of a quadrature split of the galactic-plane residual: 21.4 K beam +
+prior floor, 7.3 K white, 4.8 K 1/f, closing to better than 0.1%. That claim
+was true but unusable in the paper, because it is a map-domain rms in kelvin,
+on the full patch, at native per-channel resolution, with no HI in the
+simulation. Every other number in the paper is a $k$-resolved ratio against
+the HI at common resolution on the 119 interior pixels. Three steps put 1/f on
+that footing and turn the claim into a bound.
+
+**Splitting the noise costs two solves per channel.** The ablation already
+re-solved the same operators with components removed; its `noiseonly` arm was
+the difference between a noisy and a noiseless solve of the foreground. Since
+the noise enters multiplicatively,
+
+$$d = (\mathbf{A}s)\,(1 + g)\,(1 + w),$$
+
+the gain and white contributions can be isolated by applying one factor at a
+time, and the two pieces sum to the joint term up to the cross product $g w$.
+Both draws are of order $10^{-3}$, so that term is $\sim\!10^{-6}$ relative;
+measured, `gainonly + whiteonly` reproduces `noiseonly` to $1.9\times10^{-4}$
+(drift) and $2.3\times10^{-4}$ (raster) of the noise amplitude. The script
+prints the check on every run, since it is the assumption the split rests on.
+
+At 4 modes removed, common resolution, as amplitude ratios to the HI:
+
+| | floor | total | 1/f | white |
+|---|---|---|---|---|
+| drift | 336.3x | 349.4x | **4.0x** | 5.2x |
+| raster | 22.7x | 24.0x | **0.4x** | 2.1x |
+
+For the raster the 1/f term alone sits *below the HI it is trying to hide*.
+That is a considerably sharper statement than "5-8% of the residual", and it
+is in the same units as the transfer function and the residual/HI table.
+
+**What the model actually is.** `limTOD.flicker_model` draws the gain from a
+Gaussian process with a closed-form autocorrelation rather than by sampling a
+spectrum, so the realisation is exact and has no periodicity artefacts. The
+correlation is the cosine transform of a cut-off power law,
+
+$$C(\tau) = \frac{1}{\pi}\int_{\omega_c}^{\infty}
+           \left(\frac{\omega_0}{\omega}\right)^{\alpha}\cos(\omega\tau)\,
+           \mathrm{d}\omega ,$$
+
+evaluated through the upper incomplete gamma function, with
+$C(0) = (\omega_c/\pi)(\omega_0/\omega_c)^{\alpha}/(\alpha - 1) + \sigma_w^2$;
+the $1/(\alpha-1)$ is why $\alpha = 1$, the pure $1/f$ exponent, is rejected
+rather than returning infinity. Verified against a numerical cosine transform
+to $\sim\!10^{-4}$ out to $\tau = 300$ s. **$\omega_0$ and $\omega_c$ are
+angular frequencies** — `GAIN_PARAMS` = $[1.335\times10^{-5},\,
+1.099\times10^{-3},\, 2]$ is 2.13e-6 Hz and 1.75e-4 Hz, and quoting the raw
+numbers as Hz is wrong by $2\pi$.
+
+**The knee is the useful parameterisation.** The white gain term has flat
+spectrum $\sigma_w^2 \Delta t$ in the same convention, so the two cross at
+
+$$\omega_{\rm knee} = \omega_0 \left(\sigma_w^2 \Delta t\right)^{-1/\alpha}
+  = 0.95\ \text{mHz} .$$
+
+That number locates the assumption against the scan: the drift's fundamental
+(0.28 mHz, one traverse per 1 h pass) sits *below* the knee, in the
+1/f-dominated regime, while the raster's sweep rate (3.33 mHz, 300 s per
+sweep) sits 3.5x *above* it. This is the "scan speed is already solved"
+argument stated as a crossing frequency rather than a power ratio.
+
+**How much worse would it have to be?** Scanning the knee and reading off
+where the 1/f arm meets the floor:
+
+| | $\alpha = 1.5$ | $\alpha = 2.0$ | $\alpha = 2.5$ |
+|---|---|---|---|
+| drift | 316 mHz (333x) | 80 mHz (84x) | 33 mHz (35x) |
+| raster | 184 mHz (194x) | 57 mHz (60x) | 21 mHz (22x) |
+
+Quote the raster at $\alpha = 2.5$: even in the least favourable corner, the
+knee has to move 22x before 1/f reaches the floor.
+
+*That axis is analytic, and the write-up must say so.* Scaling one realisation
+scales the entire pipeline linearly: `solve` is affine, so the constant term
+cancels in the noisy-minus-quiet difference, and `pca_clean` is
+scale-invariant, because scaling a cube scales its covariance and leaves the
+eigenvectors untouched. Hence
+$\mathrm{ratio}(\omega_{\rm knee}) \propto \omega_{\rm knee}^{\alpha/2}$
+exactly — confirmed against the computed grid to $2\times10^{-4}$. Only the
+three points at the fiducial knee are independent measurements, and the figure
+encodes that with lines for the scaling and a filled marker at the anchor.
+Drawing a marker at every knee would claim eighteen runs where there were
+three.
+
+**The cut-off, which is the honest test.** $\omega_c$ changes the *shape* of
+the correlation rather than its amplitude, so nothing factors out and every
+point is a fresh draw. The fiducial 0.175 mHz is a 1.6 h timescale — about one
+pass — which is a suspiciously convenient place for the model to stop adding
+correlated power. Extending it downward:
+
+| $\omega_c$ | timescale | gain rms | drift | raster |
+|---|---|---|---|---|
+| 0.0175 mHz | 16 h | 7.12e-4 | 4.44x | 0.40x |
+| 0.055 | 5 h | 4.13e-4 | 4.30x | 0.45x |
+| **0.175 (assumed)** | 1.6 h | 2.69e-4 | 3.98x | 0.38x |
+| 0.55 | 30 min | 1.51e-4 | 3.20x | 0.37x |
+| 1.75 | 10 min | 7.96e-5 | 2.31x | 0.15x |
+| 5.5 | 3 min | 4.21e-5 | 0.22x | 0.09x |
+
+Left of the assumed value the curve is **flat while the gain rms grows 2.6x**.
+The reason is a degeneracy, and it is the same one that runs through the whole
+experiment: gain drift slower than a pass acts as a near-constant
+multiplicative error on the foreground, and the foreground is rank 1, so the
+product is rank 1 too and the cleaning removes it along with the foreground.
+The result therefore does not rest on where the spectrum is truncated. Right
+of the assumed value the residual falls, but only because raising $\omega_c$
+deletes 1/f power outright (rms drops 6x) — that side is not a finding.
+
+**One soft spot, recorded rather than hidden.** The two lowest-$\omega_c$
+raster points are non-monotonic in rms (3.28e-4 then 3.80e-4) where the
+drift's are clean. A 3 h observation barely samples a 16 h correlation time,
+so a single draw of the lowest-frequency modes is not representative. The flat
+trend is not in doubt, but those individual points carry realisation scatter
+that one draw cannot quantify; a few seeds would give error bars. Related, and
+worth a sentence in the paper: the gain draw is common to all channels by
+construction of the RNG replay, so the model has no frequency structure in the
+gain — and frequency structure is exactly what would decide whether PCA could
+remove it.
