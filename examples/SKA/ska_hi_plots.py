@@ -709,6 +709,50 @@ def fig_rank(rank, nshow=20, text=None):
     return _save(fig, "hi_rank")
 
 
+def fig_modes(modes, nshow=80, thresh=0.01, text=None):
+    """Figure 10 -- how many sky modes each strategy actually measures.
+
+    The eigenspectrum of the map-maker's own information matrix
+    ``A^T N^-1 A``, with the same noise weighting the solves use. This is the
+    mechanism behind the rest of the series: the floor is the sky outside the
+    measured subspace, so doubling the modes is what cross-linking buys.
+    """
+    fig, ax = plt.subplots(figsize=_figsize("hi_modes", (7.2, 4.9)))
+    _tidy(ax)
+    for s in ("drift", "raster"):
+        w = modes[f"{s}_eig"][:nshow]
+        n = int(modes[f"{s}_n{thresh}"])
+        colour = STRAT[s]["color"]
+        ax.plot(np.arange(1, len(w) + 1), np.maximum(w, 1e-6), color=colour,
+                lw=2.0, zorder=3,
+                label=f"{STRAT[s]['label']} — {n} modes")
+        # Where the spectrum crosses the threshold, marked on the curve itself
+        # rather than in a legend: the count IS the crossing.
+        ax.plot([n], [w[n - 1]], color=colour, marker="o", ms=7, mfc=colour,
+                mec=SURFACE, mew=1.6, zorder=5)
+        ax.annotate(f"{n}", (n, w[n - 1]), textcoords="offset points",
+                    xytext=(6, 6), color=colour, fontsize=10,
+                    fontweight="semibold")
+    ax.axhline(thresh, color=INK, lw=1.2, ls=(0, (4, 3)), zorder=2)
+    ax.annotate(f"{thresh:.0%} of $\\lambda_{{\\max}}$", (nshow, thresh),
+                textcoords="offset points", xytext=(-2, 5), ha="right",
+                color=INK, fontsize=8.8)
+    ax.set_yscale("log")
+    ax.set_ylim(1e-6, 2)
+    ax.set_xlim(0, nshow)
+    ax.set_xlabel("eigenmode of $A^{\\top} N^{-1} A$")
+    ax.set_ylabel("$\\lambda_i \\,/\\, \\lambda_1$")
+    ax.legend(loc="upper right", fontsize=9)
+
+    _title(fig, "Cross-linking doubles the sky the survey can measure",
+             f"Information matrix at {float(modes['freq_mhz']):.0f} MHz, same "
+             "noise weighting as the solves. Everything below the cut is prior, "
+             "not data — and that is the beam + prior floor.",
+           x=0.02, y_title=1.05, y_sub=0.975, override=text)
+    fig.tight_layout(rect=(0, 0, 1, 0.90))
+    return _save(fig, "hi_modes")
+
+
 def fig_1f_scan(scan, abl=None, text=None, cutoff=None):
     """Figure 9 -- how bad would 1/f have to be before it mattered?
 
