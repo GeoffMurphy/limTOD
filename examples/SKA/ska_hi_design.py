@@ -404,6 +404,21 @@ def main():
     if os.path.exists(pv):
         print("wrote", fig_priorvar(np.load(pv)))
 
+    bands = load_bands()
+    for b in bands:
+        cells = "  ".join(
+            f"{s_} fg {b[s_]['fg']:8.2e} resid/HI {b[s_]['ratio']:6.1f}"
+            for s_ in ("drift", "raster") if s_ in b)
+        print(f"{b['label'].replace('$-$', '-'):>9s} MHz  "
+              f"HI {b['hi']:8.2e}   {cells}")
+    print("wrote", fig_frequency(bands))
+    print("wrote", fig_cleaning_depth())
+
+    rank = os.path.join(RESDIR, "hi_rank_f350_400_nc32_ns64.npz")
+    if os.path.exists(rank):
+        print("wrote", fig_chromatic(np.load(rank)))
+    print("wrote", fig_realisations(load_realisations()))
+
 
 def fig_priorvar(pv, d=None, nmodes=NMODES, text=None):
     """Does the trade space survive the prior, or is it a picture of the prior?
@@ -881,6 +896,8 @@ def fig_cleaning_depth(text=None):
     """
     runs = [("350$-$400", "hi_experiment_matched_f350_400_nc32_ns64.npz",
              ("drift", "drift12", "raster"), "-"),
+            ("500$-$550", "hi_experiment_f500_f500_550_nc32_ns128.npz",
+             ("drift", "raster"), (0, (1, 2.4))),
             ("675$-$725", "hi_experiment_f700_f675_725_nc32_ns128.npz",
              ("drift", "raster"), (0, (4, 2)))]
     colour = {"drift": DRIFT, "drift12": THIRD, "raster": RASTER}
@@ -927,15 +944,14 @@ def fig_cleaning_depth(text=None):
         ax.set_xlim(0.5, 12.2)
         ax.set_ylim(bottom=0.7)
     bands = list(dict.fromkeys(seen))
-    leg1 = axA.legend(handles=[Line2D([], [], color=c, lw=2.4, label=s_)
-                               for s_, c in strat_seen],
-                      loc="upper right", bbox_to_anchor=(1.0, 1.0),
-                      fontsize=8.8, title="strategy", title_fontsize=8.4,
-                      labelspacing=0.35)
-    axA.add_artist(leg1)
-    axA.legend(handles=[Line2D([], [], color=MUTED, ls=ls, lw=2.0,
+    axA.legend(handles=[Line2D([], [], color=c, lw=2.4, label=s_)
+                        for s_, c in strat_seen],
+               loc="upper right", bbox_to_anchor=(1.0, 1.0),
+               fontsize=8.8, title="strategy", title_fontsize=8.4,
+               labelspacing=0.35)
+    axB.legend(handles=[Line2D([], [], color=MUTED, ls=ls, lw=2.0,
                                label=f"{b} MHz") for b, ls in bands],
-               loc="upper right", bbox_to_anchor=(1.0, 0.62),
+               loc="lower left", bbox_to_anchor=(0.02, 0.04),
                fontsize=8.8, title="band", title_fontsize=8.4,
                labelspacing=0.35)
 

@@ -778,6 +778,69 @@ the mode count, and it shows the patch average understates the evaluation
 region's mode density by 1.4-2.4x in every case.
 
 
+### The 500-550 MHz point, and where the crossover is (added 2026-09-23)
+
+`f500` fills in the middle of Band 1 at **500-550 MHz, nside 128** (272
+interior pixels). Ilifu job **13858845**, 2 h 53 min, exit 0, clean log.
+Results in `results/hi_{experiment,ablation}_f500_f500_550_nc32_ns128.npz`.
+
+At 4 modes removed, common resolution, relative to HI:
+
+| band | strategy | floor | total | noise | white | gain |
+|---|---|---|---|---|---|---|
+| 350-400 (ns64) | drift | 399.6 | 413.5 | 8.27 | 6.22 | 5.10 |
+| | raster | 25.6 | 27.1 | 2.33 | 2.21 | 0.41 |
+| 500-550 (ns128) | drift | 214.3 | 213.2 | 1.74 | 1.54 | 0.64 |
+| | raster | 56.2 | 76.7 | 1.17 | 1.12 | 0.16 |
+| 675-725 (ns128) | drift | 16.1 | 16.3 | 1.28 | 1.27 | 0.15 |
+| | raster | 36.0 | 38.0 | 1.15 | 1.15 | 0.15 |
+
+Floor-limited in all six cases (`floor` ~ `total`), so nothing here is a noise
+statement. **The negative result holds at every band tested.**
+
+**The inversion is real, not a resolution artefact.** This was the obvious
+worry, since the 350 band is nside 64 and the other two are nside 128. It is
+answered by the 500/675 pair, which share a grid, share a geometry and share
+seeds: across that pair alone the drift goes from 3.8x *worse* than the raster
+to 2.2x *better*. The ordering flips inside the matched-grid comparison.
+
+**Both strategies improve monotonically with frequency; the ratio does not.**
+Separating the two factors (`fg` = median `sqrt(p_clean_auto_4)`):
+
+| band | drift fg | raster fg | drift/raster | HI `sqrt(p_true)` | drift resid/HI | raster resid/HI |
+|---|---|---|---|---|---|---|
+| 350-400 | 6.54e-2 | 6.45e-3 | 10.1 | 7.81e-4 | 413.5 | 27.1 |
+| 500-550 | 1.48e-2 | 5.90e-3 | 2.51 | 4.52e-4 | 213.2 | 76.7 |
+| 675-725 | 6.25e-4 | 2.60e-3 | 0.24 | 1.73e-4 | 16.3 | 38.0 |
+
+Every instrumental column is monotonic: the drift's foreground residual falls
+105x across Band 1, the raster's 2.5x, and the HI falls 4.5x on its own. Yet
+the raster's `residual/HI` goes **27 -> 77 -> 38** -- non-monotonic, out of two
+monotonic quantities. That is the cleanest available demonstration of the
+warning the 700 MHz run raised: **`residual/HI` is a quotient of an instrument
+number and a cosmology number and must not be read as a trend across bands.**
+The third point turns that from an argument into a picture.
+
+**Where the drift overtakes the raster: ~600 MHz.** Log-interpolating the
+foreground residual ratio between the two nside-128 bands (2.51 at 525 MHz,
+0.24 at 700 MHz) puts the crossing at **~594 MHz**. Treat it as "somewhere in
+the upper half of Band 1", not a measured number -- it is two points and the
+350 MHz point does not lie on the same straight line.
+
+**Consequence for the paper, now with a number attached.** Every
+"cross-linking is the lever" claim is a *bottom-of-Band-1* statement. Above
+~600 MHz the drift's null space has narrowed enough that it wins on
+foreground residual, and cross-linking stops being the discriminator. The
+qualifier "at 350 MHz" must be attached in `paper/ska_drift/main.tex` and in
+the earlier sections of this file (still outstanding).
+
+**`ska_hi_design.py` now draws all eight figures in one run.** `main()` had
+only ever been wired to the first four -- `hi_frequency_design`,
+`hi_cleaning_depth`, `hi_chromatic` and `hi_realisations` were drawn by hand
+on 2026-09-22 and would silently have gone stale. `fig_cleaning_depth` also
+gained the 500 MHz band as a third line style. Both fixed 2026-09-23.
+
+
 ### Design figures, and two gaps closed (added 2026-09-22 evening)
 
 `ska_hi_design.py` draws all of these from cached results in seconds. They are
@@ -786,12 +849,13 @@ prototypes for the paper, not final art; every number on them is measured.
 | figure | what it is for |
 |---|---|
 | `hi_design.png` | the headline. Two regimes at 350-400 MHz: the ladder is a shallow power law (slope -1.28 over 3 → 12 dishes), cross-linking is a **9.3x step change at 2%-matched mode density**. Plus the lever chart, now on the FLOOR rather than the mode count. |
-| `hi_frequency_design.png` | why `residual/HI` must not be compared across bands: instrument, cosmology, and their misleading quotient, in three panels. |
+| `hi_frequency_design.png` | why `residual/HI` must not be compared across bands: instrument, cosmology, and their misleading quotient, in three panels. Three bands as of 2026-09-23 (350, 500, 675 MHz), so the panels show curves rather than line segments. |
 | `hi_cleaning_depth.png` | the referee's first question. Residual and surviving HI both fall with PCA depth, the residual faster, so the net never turns over. **There is no optimal cleaning depth: the limit is the floor.** |
 | `hi_ladder.png` | the drift's only geometry lever, out to 20 dishes, with the two measured floors overlaid. |
 | `hi_ladder_geometry.png` | the ladder as sky geometry, for explaining it to others. |
 | `hi_chromatic.png` | **why the floor is immune to PCA** (see below). |
 | `hi_priorvar.png` | prior-amplitude robustness. |
+| `hi_realisations.png` | the error bar. Nine HI realisations: 13.4% scatter on the drift, 8.7% on the raster, **6.4% on the paired ratio** -- which is why this series quotes ratios between strategies, not absolute residuals. |
 
 #### Why the floor survives foreground cleaning (`hi_chromatic.png`)
 
@@ -847,52 +911,40 @@ beams, an 8.7% mode-density change) came out inconclusive, and it is the bar
 any future sub-20% claim has to clear.
 
 
-### PICK UP HERE — state as of 2026-09-23 morning
+### PICK UP HERE — state as of 2026-09-23 afternoon
 
-Everything below needs an Ilifu connection. The ControlMaster expires after 8 h,
-so start with `ssh ilifu` **in a real terminal** (the OTP prompt needs a TTY;
-an agent cannot do it). `ssh ilifu-transfer` too if anything large must move —
-though all the result npz files are small enough for
-`ssh ilifu "bash -lc 'cat <remote>'" > <local>`.
+**All queued compute is done.** The 500-550 MHz band (Ilifu job 13858845)
+completed 2026-09-23, both npz files are pulled into `results/`, and all eight
+design figures have been redrawn from local cache. Nothing is running on
+Ilifu. See "The 500-550 MHz point" above for what it showed.
 
-**Outstanding: the 500-550 MHz band.** Cache warming **completed** overnight
-2026-09-22/23 (arrays 13858382 / 13858383, 32/32 each, 192 task records
-COMPLETED, zero failures). The experiment + ablation was submitted 2026-09-23
-as Ilifu job **13858845** (`run_hi_f500.sbatch f500 drift raster`, ~1.5 h).
-It is the third point on `hi_frequency_design.png`, which until it lands has
-only two bands and therefore shows line segments rather than curves.
-
-When it finishes:
+To redraw everything after any change:
 
 ```bash
-# check it completed
-ssh ilifu "bash -lc 'sacct -j 13858845 --format=State,Elapsed -n | head -1'"
-
-# pull, then redraw (ska_hi_design.py picks the band up automatically)
-for f in hi_experiment_f500_f500_550_nc32_ns128.npz \
-         hi_ablation_f500_f500_550_nc32_ns128.npz; do
-  ssh ilifu "bash -lc 'cat ~/ska/limTOD-src/examples/SKA/results/$f'" > results/$f
-done
-/home/geoff/limTOD/.venv/bin/python ska_hi_design.py
+/home/geoff/limTOD/.venv/bin/python ska_hi_design.py   # all 8 figures, ~1 min
 ```
 
-**Everything else is complete and pulled locally.** All seven design figures
-regenerate from cache in seconds. The only figure that will change when the
-500 MHz band lands is `hi_frequency_design.png`.
+**The one outstanding task is writing, not computing.** Every claim of the form
+"cross-linking is the lever" is a statement about the *bottom* of Band 1. The
+500 MHz point now puts the crossover at ~600 MHz, so these need the qualifier
+"at 350 MHz" (or re-checking against the three-band table):
+
+- `paper/ska_drift/main.tex`
+- the earlier sections of this file, above "Frequency repeat at 675-725 MHz"
 
 **Higher bands would need nside 256.** 850-900 MHz gives 3.4 px/FWHM at nside
 128 and 1025-1075 gives 2.8, both below this series' own safe floor (see the
 grid check above). That is a much larger job than the 700 MHz repeat and is
-not queued.
+not queued. Three points across Band 1 is arguably enough to make the
+frequency argument without them.
 
-**Open question the frequency work raised, for PLAN:** the drift/raster ordering
-inverts between 350 and 700 MHz, so "cross-linking is the lever" is a
-band-specific statement. Every claim of that form in `paper/ska_drift/main.tex`
-and in the earlier sections of this file needs "at 350 MHz" attached, or
-re-checking. The 500 MHz point will show whether the crossover is smooth.
+**Ilifu reminders.** The ControlMaster expires after 8 h, so start with
+`ssh ilifu` **in a real terminal** (the OTP prompt needs a TTY; an agent
+cannot do it). `squeue`/`sacct` are not on the transfer node and the login
+shell is not a login shell by default, so wrap: `ssh ilifu "bash -lc '...'"`.
+Result npz files are small enough to pull with
+`ssh ilifu "bash -lc 'cat <remote>'" > <local>`.
 
-
----
 
 ## Queued next
 
