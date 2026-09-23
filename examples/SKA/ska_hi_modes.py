@@ -16,8 +16,23 @@ counted above a fraction of lambda_max; the series quotes the 1% threshold, and
 10% / 0.1% are recorded to show the contrast is not an artefact of where the
 line is drawn.
 
-Also records the participation ratio (sum lambda)^2 / sum lambda^2, a
-threshold-free "effective number of modes".
+The primary number is threshold-free. The map is m = W A s + prior, so the
+resolution matrix W A has trace
+
+    N_eff = tr(W A) = sum_i lambda_i / (lambda_i + S^-1),
+
+the degrees of freedom the DATA constrains: each mode counts between 0 and 1
+according to whether data or prior dominates it. It is exactly complementary to
+the floor, r_floor = (I - W A) s, so N_pix - N_eff counts the prior-filled
+directions the floor is built from. It is prior-dependent by construction --
+S^-1 is the flat prior actually used, 1/var(s_truth) -- which is honest rather
+than a defect, since the floor depends on the prior too.
+
+A fixed fraction of lambda_max is NOT used for the headline: it is arbitrary,
+and the drift-to-raster factor moves with it (1.75x at 10%, 1.94x at 1%, 2.39x
+at 0.1%) where tr(WA) gives 3.30x. The threshold counts are kept as a
+robustness line, with the participation ratio as a second threshold-free
+measure.
 
 Writes ``results/hi_modes_<band>.npz``.
 
@@ -29,6 +44,7 @@ from __future__ import annotations
 import os
 import sys
 
+import healpy as hp
 import numpy as np
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -68,16 +84,28 @@ def main():
         w = np.linalg.eigvalsh(M)[::-1]          # descending
         w = np.maximum(w, 0.0)
         rel = w / w[0]
-        eff = float(w.sum() ** 2 / (w ** 2).sum())
+        # The prior the solves actually use: flat and diagonal at the patch
+        # variance. Being a multiple of the identity it shifts every eigenvalue
+        # equally, so tr(WA) follows directly in the eigenbasis.
+        s_inv = 1.0 / max(float(np.std(truth)), 1e-3) ** 2
+        n_eff = float(np.sum(w / (w + s_inv)))
+        area = len(pix) * hp.nside2pixarea(X.NSIDE, degrees=True)
+        part = float(w.sum() ** 2 / (w ** 2).sum())
         counts = {t: int((rel > t).sum()) for t in THRESHOLDS}
         out[f"{strategy}_eig"] = rel
+        out[f"{strategy}_eig_abs"] = w
+        out[f"{strategy}_s_inv"] = s_inv
+        out[f"{strategy}_n_eff"] = n_eff
+        out[f"{strategy}_n_above_prior"] = int((w > s_inv).sum())
+        out[f"{strategy}_area_deg2"] = area
         out[f"{strategy}_npix"] = len(pix)
-        out[f"{strategy}_effective"] = eff
+        out[f"{strategy}_participation"] = part
         for t in THRESHOLDS:
             out[f"{strategy}_n{t}"] = counts[t]
-        print(f"  {strategy:7s} {len(pix):3d} px   "
-              + "  ".join(f">{t*100:g}%: {counts[t]:3d}" for t in THRESHOLDS)
-              + f"   effective {eff:.1f}", flush=True)
+        print(f"  {strategy:7s} {len(pix):3d} px, {area:5.1f} deg^2  "
+              + " ".join(f">{t*100:g}%: {counts[t]:3d}" for t in THRESHOLDS)
+              + f"  |  tr(WA) {n_eff:6.1f} ({n_eff / area:.3f}/deg^2)"
+              + f"  participation {part:.1f}", flush=True)
 
     os.makedirs(os.path.join(_HERE, "results"), exist_ok=True)
     path = os.path.join(_HERE, "results",

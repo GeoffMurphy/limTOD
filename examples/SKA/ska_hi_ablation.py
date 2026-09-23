@@ -57,12 +57,22 @@ MARGIN_DEG = 3.0
 
 
 def main():
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--strategies", nargs="*", default=["drift", "raster"])
+    ap.add_argument("--tag", default="",
+                    help="suffix for the output filename; required for any "
+                         "strategy set other than the published drift+raster")
+    args = ap.parse_args()
+    if not args.tag and sorted(args.strategies) != ["drift", "raster"]:
+        sys.exit("refusing to overwrite the published ablation npz: pass --tag")
+
     freqs = X.channel_freqs()
     cfg = X.band_config()
     dr = A.channel_dr_mpc(cfg)
 
-    ops = {s: A.channel_operators(s) for s in ("drift", "raster")}
-    common = A.common_patch([ops[s] for s in ("drift", "raster")])
+    ops = {s: A.channel_operators(s) for s in args.strategies}
+    common = A.common_patch([ops[s] for s in args.strategies])
     union = np.unique(np.concatenate(
         [np.asarray(m.pixel_indices) for s in ops for m in ops[s]]))
     interior = A.interior_mask(common, X.NSIDE, margin_deg=MARGIN_DEG)
@@ -77,7 +87,7 @@ def main():
     out = dict(nmodes_grid=np.asarray(X.__dict__.get("NMODES_GRID",
                                                      (1, 2, 3, 4, 6, 8, 10))),
                common=common, interior=interior, margin_deg=MARGIN_DEG)
-    for strategy in ("drift", "raster"):
+    for strategy in args.strategies:
         g, w = X.replay_noise(strategy)
         t0 = time.time()
         cubes = {a: [] for a in ARMS}
@@ -155,8 +165,9 @@ def main():
                           for arm in ARMS), flush=True)
 
     os.makedirs(os.path.join(_HERE, "results"), exist_ok=True)
+    _tag = f"_{args.tag}" if args.tag else ""
     path = os.path.join(_HERE, "results",
-                        f"hi_ablation_f{X.F_LO_MHZ:.0f}_{X.F_HI_MHZ:.0f}"
+                        f"hi_ablation{_tag}_f{X.F_LO_MHZ:.0f}_{X.F_HI_MHZ:.0f}"
                         f"_nc{X.NCHAN}_ns{X.NSIDE}.npz")
     np.savez(path, **out)
     print(f"wrote {path}", flush=True)

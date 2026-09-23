@@ -709,45 +709,54 @@ def fig_rank(rank, nshow=20, text=None):
     return _save(fig, "hi_rank")
 
 
-def fig_modes(modes, nshow=80, thresh=0.01, text=None):
-    """Figure 10 -- how many sky modes each strategy actually measures.
+def fig_modes(modes, nshow=140, text=None):
+    """Figure 10 -- how much sky each strategy actually measures.
 
-    The eigenspectrum of the map-maker's own information matrix
-    ``A^T N^-1 A``, with the same noise weighting the solves use. This is the
-    mechanism behind the rest of the series: the floor is the sky outside the
-    measured subspace, so doubling the modes is what cross-linking buys.
+    The eigenspectrum of the map-maker's information matrix ``A^T N^-1 A``,
+    normalised to the prior information ``S^-1`` rather than to lambda_max. The
+    reference line is then meaningful rather than arbitrary: above it the data
+    constrains the mode, below it the prior does, and what the prior fills in is
+    the beam + prior floor.
+
+    The headline count is ``tr(WA) = sum lambda/(lambda + S^-1)``, the degrees
+    of freedom the data constrains, which needs no threshold. A fixed fraction
+    of lambda_max was used previously and is not defensible: the drift-to-raster
+    factor moves with where the line is drawn (1.75x at 10%, 1.94x at 1%, 2.39x
+    at 0.1%), while tr(WA) gives 3.30x.
     """
-    fig, ax = plt.subplots(figsize=_figsize("hi_modes", (7.2, 4.9)))
+    fig, ax = plt.subplots(figsize=_figsize("hi_modes", (7.6, 4.9)))
     _tidy(ax)
     for s in ("drift", "raster"):
-        w = modes[f"{s}_eig"][:nshow]
-        n = int(modes[f"{s}_n{thresh}"])
+        w = np.asarray(modes[f"{s}_eig_abs"], float)
+        s_inv = float(modes[f"{s}_s_inv"])
+        n_eff = float(modes[f"{s}_n_eff"])
+        n_cross = int(modes[f"{s}_n_above_prior"])
+        y = np.maximum(w[:nshow] / s_inv, 1e-4)
         colour = STRAT[s]["color"]
-        ax.plot(np.arange(1, len(w) + 1), np.maximum(w, 1e-6), color=colour,
-                lw=2.0, zorder=3,
-                label=f"{STRAT[s]['label']} — {n} modes")
-        # Where the spectrum crosses the threshold, marked on the curve itself
-        # rather than in a legend: the count IS the crossing.
-        ax.plot([n], [w[n - 1]], color=colour, marker="o", ms=7, mfc=colour,
-                mec=SURFACE, mew=1.6, zorder=5)
-        ax.annotate(f"{n}", (n, w[n - 1]), textcoords="offset points",
-                    xytext=(6, 6), color=colour, fontsize=10,
-                    fontweight="semibold")
-    ax.axhline(thresh, color=INK, lw=1.2, ls=(0, (4, 3)), zorder=2)
-    ax.annotate(f"{thresh:.0%} of $\\lambda_{{\\max}}$", (nshow, thresh),
-                textcoords="offset points", xytext=(-2, 5), ha="right",
-                color=INK, fontsize=8.8)
+        ax.plot(np.arange(1, len(y) + 1), y, color=colour, lw=2.0, zorder=3,
+                label=f"{STRAT[s]['label']} — {n_eff:.0f} modes")
+        ax.plot([n_cross], [y[n_cross - 1]], color=colour, marker="o", ms=7,
+                mfc=colour, mec=SURFACE, mew=1.6, zorder=5)
+        ax.annotate(f"{n_eff:.0f}", (n_cross, y[n_cross - 1]),
+                    textcoords="offset points", xytext=(7, 6), color=colour,
+                    fontsize=10, fontweight="semibold")
+    ax.axhline(1.0, color=INK, lw=1.2, ls=(0, (4, 3)), zorder=2)
+    # Left edge: the raster crosses the line near the right, where this label
+    # would sit on top of its count.
+    ax.annotate("data = prior", (0, 1.0), textcoords="offset points",
+                xytext=(4, 5), ha="left", color=INK, fontsize=8.8)
     ax.set_yscale("log")
-    ax.set_ylim(1e-6, 2)
+    ax.set_ylim(1e-4, ax.get_ylim()[1])
     ax.set_xlim(0, nshow)
     ax.set_xlabel("eigenmode of $A^{\\top} N^{-1} A$")
-    ax.set_ylabel("$\\lambda_i \\,/\\, \\lambda_1$")
+    ax.set_ylabel("$\\lambda_i \\,/\\, S^{-1}$   (data over prior)")
     ax.legend(loc="upper right", fontsize=9)
 
-    _title(fig, "Cross-linking doubles the sky the survey can measure",
+    _title(fig, "Cross-linking triples the sky the survey can measure",
              f"Information matrix at {float(modes['freq_mhz']):.0f} MHz, same "
-             "noise weighting as the solves. Everything below the cut is prior, "
-             "not data — and that is the beam + prior floor.",
+             "noise weighting and prior as the solves. The count is "
+             "$\\mathrm{tr}(WA)$, no threshold; everything below the line is "
+             "prior rather than data, and that is the floor.",
            x=0.02, y_title=1.05, y_sub=0.975, override=text)
     fig.tight_layout(rect=(0, 0, 1, 0.90))
     return _save(fig, "hi_modes")

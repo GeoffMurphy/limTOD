@@ -75,9 +75,21 @@ from ska_hi_mock import HIBandConfig
 # Band and grid
 # ---------------------------------------------------------------------------
 
-F_LO_MHZ, F_HI_MHZ, NCHAN = 350.0, 400.0, 32
-NSIDE = 64
-NS_CELL = 16                        # ~3.7 deg cells, about one beam at 350 MHz
+# Band and grid are overridable from the environment so the same code can be
+# re-run at a different frequency without a fork. Both the cache filenames
+# (``tod_<strategy>_f<freq>_ns<nside>``) and the results filenames
+# (``..._f<lo>_<hi>_nc<n>_ns<nside>``) already encode them, so runs at
+# different settings cannot collide.
+#
+# Grid choice is NOT free: the series' own check (HANDOFF, "~3 px/FWHM is NOT a
+# safe floor") means nside must track the beam. At 350 MHz, nside 64 gives
+# 4.4 px across the 3.99 deg FWHM; holding that ratio needs nside 128 near
+# 700 MHz and nside 256 above ~875 MHz. ``check_sampling()`` below reports it.
+F_LO_MHZ = float(os.environ.get("SKA_HI_F_LO", 350.0))
+F_HI_MHZ = float(os.environ.get("SKA_HI_F_HI", 400.0))
+NCHAN = int(os.environ.get("SKA_HI_NCHAN", 32))
+NSIDE = int(os.environ.get("SKA_HI_NSIDE", 64))
+NS_CELL = int(os.environ.get("SKA_HI_NS_CELL", 16))   # ~1 beam at 350 MHz
 
 # Held identical to experiments 001-004.
 DT = 2.0
@@ -106,6 +118,26 @@ RASTER_UTC = "2024-04-16 00:00:00"
 CACHE_DIR = os.path.join(_HERE, "hi_cache")
 
 
+def check_sampling(verbose=True):
+    """Pixels across the FWHM at the band edges. Under ~3 is undersampled.
+
+    Experiment 005 found that 875 and 1050 MHz on the shared nside 128 grid
+    (3.5 and 2.9 px/FWHM) were undersampled badly enough to flatten a real
+    trend, so this is reported rather than assumed.
+    """
+    import healpy as hp
+    out = {}
+    for f in (F_LO_MHZ, F_HI_MHZ):
+        px = np.sqrt(hp.nside2pixarea(NSIDE, degrees=True))
+        out[f] = ska_beam_fwhm_deg(f) / px
+    if verbose:
+        for f, n in out.items():
+            flag = "" if n >= 3.0 else "   <-- UNDERSAMPLED"
+            print(f"  {f:.1f} MHz: FWHM {ska_beam_fwhm_deg(f):.3f} deg, "
+                  f"{n:.2f} px/FWHM at nside {NSIDE}{flag}", flush=True)
+    return out
+
+
 def channel_freqs():
     edges = np.linspace(F_LO_MHZ, F_HI_MHZ, NCHAN + 1)
     return 0.5 * (edges[:-1] + edges[1:])
@@ -120,14 +152,42 @@ def band_config(seed=SEED):
 # Scan geometry
 # ---------------------------------------------------------------------------
 
-def drift_pointings():
-    """(time, azimuth, elevation) per night for the off-plane drift."""
+def ladder(n_strips, spacing_beams, centre_deg=50.0):
+    """A symmetric declination ladder, spaced in units of the beam.
+
+    Spacing is quoted in beams at the BAND BOTTOM (350.78 MHz), matching
+    ``ska_hi_ladder.py``, because the geometry is a fixed choice of elevations
+    and does not track the beam across the band. ``ladder(3, 0.5)`` reproduces
+    the published 52/50/48 to a hundredth of a degree.
+
+    Parked due north, dec = 90 + phi - el, so an elevation step IS a
+    declination step; see the Tier 1 sweep for what the spacing buys.
+    """
+    step = spacing_beams * ska_beam_fwhm_deg(350.78125)
+    return list(centre_deg
+                + (np.arange(n_strips) - (n_strips - 1) / 2.0) * step)
+
+
+def _drift_pointings(elevations):
+    """(time, azimuth, elevation) per strip, one strip per sidereal day.
+
+    Night n is offset by a whole sidereal day, so every strip covers the same
+    LST window -- which makes N strips on N nights arithmetically identical to
+    N dishes parked at N elevations for a single pass. Seeds are ``SEED + n``,
+    so a longer ladder reuses the shorter one's noise realisations for its
+    first strips and the comparison stays controlled.
+    """
     out = []
-    for night, el in enumerate(DRIFT_ELEVATIONS):
+    for night, el in enumerate(elevations):
         tlist, azlist = drift_scan_night(DRIFT_NIGHT_S, dt=DT, night=night,
                                          azimuth_deg=DRIFT_AZ)
         out.append(dict(tlist=tlist, azlist=azlist, el=el, seed=SEED + night))
     return out
+
+
+def drift_pointings():
+    """The published off-plane drift: 52/50/48, three sidereal days."""
+    return _drift_pointings(DRIFT_ELEVATIONS)
 
 
 def raster_pointings():
@@ -142,10 +202,35 @@ def raster_pointings():
     return out
 
 
+# Declination-ladder variants (Tier 2 of PLAN item 6, drift half). Each gets
+# its OWN strategy name because the TOD and operator caches are keyed by it --
+# reusing "drift" would silently overwrite the published caches.
+#
+#   drift8   8 strips at 0.5 beams -> 20.0 modes/100 deg^2, close to the
+#            cross-linked raster's 22.3 but with NO cross-linking. The
+#            discriminating run: does mode density alone predict the residual?
+#            Costs 8 dish-hours against the raster's 3, so it is a test of the
+#            mechanism, not a cost-matched recommendation.
+#   drift3t  3 strips at 0.25 beams -> 15.9 modes/100 deg^2, the same 3
+#            dish-hours as the published drift. The cost-matched question:
+#            is tightening the ladder worth anything at fixed budget?
+#   drift12  12 strips at 0.5 beams -> 21.81 modes/100 deg^2, within 2.2% of
+#            the raster's 22.31. The MATCHED-DENSITY run: it removes the
+#            extrapolation the design figure currently relies on, by putting a
+#            parked drift at the cross-linked raster's own mode density.
+DRIFT_LADDERS = {
+    "drift8": ladder(8, 0.5),
+    "drift3t": ladder(3, 0.25),
+    "drift12": ladder(12, 0.5),
+}
+
 STRATEGIES = {
     "drift": dict(pointings=drift_pointings, utc=DRIFT_UTC),
     "raster": dict(pointings=raster_pointings, utc=RASTER_UTC),
 }
+for _name, _els in DRIFT_LADDERS.items():
+    STRATEGIES[_name] = dict(
+        pointings=(lambda e=_els: _drift_pointings(e)), utc=DRIFT_UTC)
 
 
 # ---------------------------------------------------------------------------

@@ -43,14 +43,34 @@ def main():
     ap.add_argument("--mocks", type=int, default=20,
                     help="independent HI realisations for the transfer function")
     ap.add_argument("--strategies", nargs="*", default=list(STRATEGIES))
+    ap.add_argument("--hi-seed", type=int, default=None,
+                    help="seed for the TRUE HI realisation only. The noise "
+                         "seeds are untouched, so varying this isolates HI "
+                         "realisation scatter -- the error bar on every "
+                         "residual/HI in this series.")
+    ap.add_argument("--tag", default="",
+                    help="suffix for the output filename. REQUIRED when the "
+                         "strategy set is not the published drift+raster, or "
+                         "the published results npz is silently overwritten -- "
+                         "the filename encodes only the band and grid.")
     ap.add_argument("--margin", type=float, default=3.0,
                     help="degrees from the patch edge to discard when "
                          "evaluating common-resolution cubes (zero-padded "
                          "smoothing pulls the map down near the boundary)")
     args = ap.parse_args()
+    # Fail before the solves, not after: the output filename encodes only the
+    # band and grid, so a non-default strategy set would silently overwrite the
+    # published results at the very end of a long run.
+    if not args.tag and sorted(args.strategies) != ["drift", "raster"]:
+        sys.exit(f"strategy set {args.strategies} needs --tag, or it would "
+                 "overwrite the published hi_experiment npz")
 
     freqs = X.channel_freqs()
-    cfg = X.band_config()
+    cfg = X.band_config() if args.hi_seed is None \
+        else X.band_config(seed=args.hi_seed)
+    if args.hi_seed is not None:
+        print(f"HI realisation seed {args.hi_seed} "
+              "(noise seeds unchanged)", flush=True)
     dr = A.channel_dr_mpc(cfg)
     print(f"band {X.F_LO_MHZ:.0f}-{X.F_HI_MHZ:.0f} MHz, {X.NCHAN} channels, "
           f"nside {X.NSIDE}, dr = {dr:.2f} Mpc/channel", flush=True)
@@ -191,8 +211,9 @@ def main():
         print(f"  {strategy} done in {time.time() - t0:.0f} s", flush=True)
 
     os.makedirs(os.path.join(_HERE, "results"), exist_ok=True)
+    tag = f"_{args.tag}" if args.tag else ""
     path = os.path.join(_HERE, "results",
-                        f"hi_experiment_f{X.F_LO_MHZ:.0f}_{X.F_HI_MHZ:.0f}"
+                        f"hi_experiment{tag}_f{X.F_LO_MHZ:.0f}_{X.F_HI_MHZ:.0f}"
                         f"_nc{X.NCHAN}_ns{X.NSIDE}.npz")
     np.savez(path, **out)
     print(f"\nwrote {path}", flush=True)

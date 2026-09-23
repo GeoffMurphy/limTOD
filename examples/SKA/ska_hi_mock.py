@@ -40,7 +40,14 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-FASTBOX_PATH = "/home/geoff/FastBox"
+# fastbox is imported off a path rather than installed, so the location has to
+# be configurable -- the laptop default is wrong on any other machine (ilifu,
+# a cluster node, a collaborator's checkout). Override with FASTBOX_PATH.
+FASTBOX_PATH = os.environ.get("FASTBOX_PATH", "/home/geoff/FastBox")
+if not os.path.isdir(FASTBOX_PATH):
+    raise RuntimeError(
+        f"fastbox not found at {FASTBOX_PATH!r}. Clone "
+        "https://github.com/GeoffMurphy/FastBox and set FASTBOX_PATH to it.")
 if FASTBOX_PATH not in sys.path:
     sys.path.insert(0, FASTBOX_PATH)
 

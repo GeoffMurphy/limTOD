@@ -485,6 +485,413 @@ With the residual 13-350x the signal the cross-power estimator has no signal in
 it. `residual_over_hi_*` is stored alongside to make that explicit. The transfer
 function itself is unaffected — injection is differential and mock-averaged.
 
+### Prior variance sweep (added 2026-09-21)
+
+**PLAN item 2 is narrower than PLAN describes, for experiment 006 only.** The
+flat-prior audit it asks for is already done here by construction: 006's prior
+*mean* is flat, a constant at the patch mean, set in `run_hi_experiment.py` and
+`ska_hi_ablation.py` (both commented `# flat prior`). The beam-smoothed-truth
+mean that `audit_flat_prior.py` exists to test belongs to experiments 004 and
+005, and the prior-dependence section above is about those. The only
+`hp.smoothing` in the 006 chain is `common_resolution`, which reconvolves
+*output* cubes and is not a prior.
+
+What is left in 006 is the prior *variance*. The solve uses
+`S^-1 = I / var(fg_truth_patch)` — one scalar on every pixel, no correlation, no
+angular or spectral structure — plus the truth-weighted `N^-1`. That scalar is
+also the crossover in `tr(WA) = sum lambda/(lambda + S^-1)`, so it moves the
+measured mode count and the floor *together*. That matters more for the design
+figure than for any single residual, because the design figure puts the mode
+count on an axis.
+
+`ska_hi_priorvar.py` sweeps it via `A.PRIOR_VAR_SCALE` (new, default 1.0, so
+nothing published changes). Results in
+`results/hi_priorvar_f350_400_nc32_ns64.npz`, figure `figures/hi_priorvar.png`.
+**Scale 1 reproduces the published 335.0/347.3 and 22.7/24.0 exactly**, so this
+is the published pipeline with one scalar changed.
+
+| prior var / truth var | drift modes/100 deg² | drift floor | drift total | raster modes/100 deg² | raster floor | raster total |
+|---|---|---|---|---|---|---|
+| 0.01 | 9.17 | 262.7 | 262.5 | 10.45 | 8.5 | **8.6** |
+| 0.1 | 11.45 | 271.6 | 275.5 | 15.00 | 15.0 | 15.3 |
+| **1 (published)** | **14.62** | **335.0** | **347.3** | **22.31** | **22.7** | **24.0** |
+| 10 | 18.42 | 389.9 | 404.3 | 33.56 | 49.4 | 52.5 |
+| 100 | 21.93 | 514.3 | 643.0 | 47.10 | 96.2 | 136.7 |
+| 1000 | 27.72 | 972.1 | 2627.0 | 61.89 | 191.3 | 531.6 |
+
+(residual/HI at 4 modes removed, common resolution, interior pixels.)
+
+**1. The trade space is not a picture of the prior.** The prior track has
+log-log slope **+1.8 (drift) / +2.2 (raster)** in the (modes, residual) plane;
+the survey curve through the two published anchors has slope **−6.3**. Opposite
+sign — the tracks *cross* the line rather than run along it. This was the
+question the design figure needed answered before it could be drawn honestly.
+
+**2. But "modes per unit sky" is not a sufficient statistic on its own.** Two
+numbers settle it:
+
+- At 100× prior variance the drift reaches **21.9 modes/100 deg²**, essentially
+  the raster's published 22.3 — and its residual is **643×** against the
+  raster's 24×.
+- At 10× the raster reaches **33.6 modes/100 deg²**, right at the 36.9 the
+  design figure's two-point extrapolation says would bring the residual to 1.
+  Its actual residual is **52.5×**.
+
+Modes bought by loosening the prior are worth nothing; modes bought by
+cross-linking are worth 14×. Physically that is the right statement —
+cross-linking adds rows to `A`, the prior only reweights rows already there —
+but **the design figure's x axis is a common currency only at fixed prior, and
+must say so**, or a reader will take the extrapolation as a design target. Add
+this to PLAN's "Figure honesty" list.
+
+**3. The loose end stops being floor-dominated.** At 1000× the drift's total
+runs 2.7× its floor (2627 vs 972) and the raster's 2.8× (532 vs 191), so the
+residual has crossed from beam+prior-floor-dominated to noise-dominated. That is
+the trade the prior is making, and it is the first place in this series where
+the floor is not the whole story.
+
+**4. The tight end survives T(k) — checked 2026-09-21, 10 mocks.**
+`ska_hi_priorvar.py --mocks N` measures the two terms that could have faked it:
+`P_mapmade / P_true` (what the map-maker does to the HI) and `T(k_par)` (what
+the clean does to what is left). Results in
+`results/hi_priorvar_tk_f350_400_nc32_ns64.npz`.
+
+| | drift | | | raster | | |
+|---|---|---|---|---|---|---|
+| prior var | HI kept | T(k) | resid ÷ surviving HI | HI kept | T(k) | resid ÷ surviving HI |
+| 0.01 | 0.344 | 0.745 | 352 (0.84) | 0.365 | 0.804 | **10.7** (0.39) |
+| 0.1 | 0.359 | 0.788 | 350 (0.83) | 0.389 | 0.846 | 18.1 (0.66) |
+| **1 (published)** | 0.366 | 0.829 | **419** (1.00) | 0.411 | 0.873 | **27.5** (1.00) |
+| 10 | 0.371 | 0.857 | 472 (1.13) | 0.431 | 0.888 | 59.2 (2.15) |
+| 100 | 0.373 | 0.871 | 738 (1.76) | 0.450 | 0.901 | 152 (5.50) |
+| 1000 | 0.375 | 0.908 | 2893 (6.91) | 0.459 | 0.923 | 576 (20.9) |
+
+At 0.01× the total surviving HI (`kept × T`) falls only **16% (drift) / 18%
+(raster)** while the residual falls 24% and 2.8×, so the gain is real, not a
+denominator collapse. Corrected, the raster gains **2.6×** (27.5 → 10.7) and the
+drift **16%** (419 → 352, saturating below 0.1×). Above scale 1 both `kept` and
+`T` are flat, so all the residual growth at the loose end is genuine noise.
+
+Control: the 10-mock `T` at scale 1 is 0.829 (drift) / 0.873 (raster) against
+the published 20-mock 0.846 / 0.882 — 2.0% and 1.0% low, consistent with
+halving the mock count. The same 10 mocks (seeds 1000-1009, the first half of
+the published set) are reused at every scale, so the cross-scale comparison is
+clean regardless.
+
+**Three reasons this is not a headline.** (a) It does not change the
+conclusion — 10.7× is still an order of magnitude above the HI. (b) It is an
+analysis choice, not a survey-design lever: the prior mean is the patch mean, so
+tightening is shrinkage toward a constant, trading bias for variance, and it
+wins only because it suppresses the foreground residual faster than the HI.
+(c) It moves the mode count the *wrong* way, which is finding 2 above. Worth a
+sentence in the paper's systematics discussion; not worth a figure.
+
+
+### The declination ladder, and what cross-linking actually is (added 2026-09-22)
+
+**PLAN item 6 is answered, and the answer overturns the design figure's
+premise.** Item 6 asked for a demonstration that deliberately raising the
+measured mode count moves the residual. It does -- but only linearly, and the
+steep slope between the published drift and raster anchors turns out not to be
+a mode-count relationship at all.
+
+**Item 6 splits in two, and only half applies to the drift.** A parked dish
+cannot cross-link at any azimuth (see above), so "more crossing angles" is a
+raster-only lever. The drift's *only* geometric freedom is the declination
+ladder: how many strips, and how far apart. That is also the multi-dish
+question, because `drift_scan_night` offsets night *n* by a whole sidereal day,
+so every strip covers the same LST window -- **N strips on N nights is
+arithmetically the same operator as N dishes parked at N elevations for one
+pass.** The published 3-night drift already *is* a 3-dish configuration;
+multi-dish buys wall-clock, not modes.
+
+#### Tier 1 -- the mode count alone (`ska_hi_ladder.py`)
+
+Operator only, no TOD, one channel: ~10 min for the whole sweep.
+`results/hi_ladder_f350_ns64.npz`, figures `hi_ladder.png` and
+`hi_ladder_geometry.png`. Control: the published 52/50/48 geometry rebuilt from
+scratch gives tr(WA) 38.77 against the cached operator's 38.78.
+
+| strips (0.5 beams) | tr(WA) | area [deg²] | modes/100 deg² |
+|---|---|---|---|
+| 1 | 13.44 | 182.1 | 7.38 |
+| 2 | 26.12 | 222.4 | 11.74 |
+| **3 (published)** | **38.77** | **265.2** | **14.62** |
+| 5 | 63.76 | 359.2 | 17.75 |
+| 8 | 100.05 | 499.4 | 20.03 |
+
+**The mechanism in one line: the first strip costs 182 deg² to buy 13.4 modes;
+every later strip buys ~12 modes for ~44 deg².** Ninety-two per cent of the
+information for a quarter of the sky. Density therefore rises 2.72x from 1 to 8
+dishes.
+
+**Extended to N = 20 (`results/hi_ladder_long_ns64.npz`, added 2026-09-22),
+and the ladder does NOT run into diminishing returns.** The marginal return per
+strip is constant across the whole range -- 12.68, 12.65, 12.50, 12.01, 11.69,
+11.65, 12.21 modes per added strip from N = 2 to N = 20, against 43-47 deg² of
+extra sky each time. Densities: 14.62 (N=3), 17.75 (5), 21.13 (10), 21.81 (12),
+22.51 (15), 23.73 (20). The density curve flattens purely because area grows
+linearly alongside modes, toward 100 x 12 / 44 ~ **27.3 per 100 deg²** -- an
+arithmetic asymptote, not a physical saturation. (An earlier note here said
+"saturating toward ~26.6", fitted on N <= 8; the constant-marginal-return
+statement is the correct one.)
+
+**This also brackets the raster's 22.31 modes/100 deg²**: N = 12 gives 21.81
+(2.2% below) and N = 15 gives 22.51 (0.9% above), so a parked drift reaches the
+cross-linked raster's mode density at N ~ 13-14. `drift12` is therefore a
+matched-density comparison that needs no extrapolation, which is what the
+`matched` Tier 2 run measures.
+
+Spacing, at 3 strips: 0.25 beams gives 15.89, 0.5 gives 14.62, 0.75 gives
+12.74, 1.0 gives 11.41, 1.5 gives 9.34 per 100 deg². Beyond ~0.75 beams the
+total mode count flattens at exactly N x a single strip (3 x 13.44 = 40.3
+predicted, 41.4 measured at 1.5 beams) -- the strips have become independent
+surveys. This is the same curve as the "ladder stops working above 700 MHz"
+note above, with the fixed 2° step sliding rightward in beam units as the beam
+narrows.
+
+#### Tier 2 -- does it move the residual? (ilifu, jobs 925104 / 925290)
+
+Full 32-channel HI experiment plus ablation for two new geometries, each with
+its own strategy tag so the published caches are untouched:
+`drift8` (8 strips, 0.5 beams, 8 dish-hours) and `drift3t` (3 strips, 0.25
+beams, 3 dish-hours -- cost-matched to the published drift). Results in
+`results/hi_{experiment,ablation}_{mech,costmatched}_*.npz`.
+
+**Mechanism test** (`mech`: drift, drift8, raster), all on the same 119
+interior pixels, one HI realisation, one set of noise seeds. Common
+resolution, 4 modes removed:
+
+| strategy | modes/100 deg² | **floor** | total | noise | 1/f |
+|---|---|---|---|---|---|
+| drift | 14.62 | **405.9** | 409.8 | 9.0 | 5.7 |
+| drift8 | 20.03 | **299.3** | 306.4 | 6.5 | 2.4 |
+| raster | 22.31 | **26.7** | 27.7 | 2.6 | 0.4 |
+
+The floor is 97-99% of the total throughout, so this is entirely a floor
+result. **Two regimes:**
+
+- **adding strips** (drift → drift8, no cross-linking): floor 405.9 → 299.3
+  for 1.37x the mode density. Local slope **-0.97**.
+- **crossing the tracks** (drift8 → raster): floor 299.3 → 26.7 for 1.11x the
+  mode density. Local slope **-22.4**.
+
+**At essentially the same mode density, cross-linking lowers the floor 11x.**
+Mode density is therefore *not* a sufficient statistic, and the -6.3 slope in
+the design-figure prototype was an artefact of fitting one line across a
+discontinuity between two regimes.
+
+**This sharpens the physics rather than weakening it.** Cross-linking is not
+"more modes": it changes the *structure* of the null space. Every drift track
+has position angle 90°, so its unmeasured modes share an angular structure that
+correlates across frequency -- which is exactly why the residual is spectrally
+non-smooth and PCA cannot remove it. Eight parallel strips do not break that
+correlation; two crossed passes do. For a survey designer: **you cannot buy your
+way out of a parked drift with dishes.** Eight dishes at eight elevations buy
+26%; two crossed passes buy a factor of 11.
+
+**Cost-matched test** (`costmatched`: drift, drift3t, 92 interior px) is
+**inconclusive and should not be quoted as a gain.** Tightening 0.5 → 0.25
+beams at fixed 3 dish-hours moves the floor 330.3 → 271.8 on the
+common-resolution metric (18% better) but 526.2 → 672.7 as-run (28% worse) and
+299.2 → 356.9 on interior pixels (19% worse). A sign that flips with the metric
+is not a result; the mode-density gain there is only 8.7%, comparable to
+realisation scatter. Note `drift3t`'s patch (222 deg²) is barely larger than
+the common patch (~202 deg²), so it has little margin for the reconvolution's
+boundary effects -- a plausible but unverified explanation for why only the
+reconvolved metric favours it. **Practical reading: the ladder's value is in
+adding strips, not in repacking the ones you have.**
+
+#### HI realisation scatter -- PLAN item 7, half-answered by accident
+
+`build_hi_cube` sizes the fastbox box from the *union* of the strategies' pixel
+sets, so a run with a different strategy list realises a different HI field at
+the same grid resolution (20 Mpc/cell either way). The `mech` run's drift
+therefore gives 409.8x where the published run gives 347.3x **on identical
+pixels** -- an 18% shift from the HI realisation alone, with the raster showing
+15% (27.6x vs 24.0x). Consequences: (a) numbers are comparable *within* a run
+and not *across* runs, which is why `drift` is included in both Tier 2 runs as
+the internal reference; (b) the headline residuals need an error bar, and ~15-18%
+is the scale. The machinery to do this properly is a seed loop over
+`HIBandConfig`.
+
+
+### Frequency repeat at 675-725 MHz (experiment 007, added 2026-09-22)
+
+The series asserted a negative result for Band 1 having tested only its bottom
+edge. `f700` repeats the whole HI experiment at **675-725 MHz, nside 128**
+(4.2-4.5 px/FWHM, matching the 350-400 run's 3.8-4.4 -- `check_sampling()` now
+reports this before every run). Same geometry, same seeds, only the band
+changes. Results in `results/hi_{experiment,ablation}_f700_f675_725_nc32_ns128.npz`;
+Ilifu job 13858047, 1 h 19 min.
+
+**The negative result survives, which is the headline.** At 4 modes removed,
+common resolution, 171 interior pixels (35.9 deg²):
+
+| | modes/100 deg² (patch) | (local) | floor | total | noise |
+|---|---|---|---|---|---|
+| drift | 41.87 | 57.69 | 16.4 | **16.5** | 1.3 |
+| raster | 76.55 | 124.48 | 36.2 | **38.1** | 1.2 |
+
+Both remain entirely floor-limited. HI is not recoverable anywhere in Band 1,
+not just at its bottom edge.
+
+**But the drift/raster ordering INVERTS, and the reason is not geometric.**
+Decomposing `residual/HI` into its two factors (`median sqrt(p_clean_auto_4)`
+and `median sqrt(p_mapmade)`):
+
+| band | strategy | HI kept | post-clean FG residual | resid/HI |
+|---|---|---|---|---|
+| 350-400 | drift | 0.362 | 6.55e-2 | 409.8 |
+| | raster | 0.394 | 6.43e-3 | 27.6 |
+| 675-725 | drift | 0.298 | **6.25e-4** | 16.3 |
+| | raster | 0.401 | **2.60e-3** | 38.0 |
+
+1. **The drift's foreground residual improves 105x with frequency; the raster's
+   only 2.5x.** At 350 MHz the drift is crippled by its null space, so a
+   narrower beam helps it enormously; the raster was already well-conditioned
+   and has little to gain. Instrumentally the drift overtakes the raster.
+2. **The HI signal is 4.3x fainter in the upper band** (`sqrt(p_true)`
+   7.42e-4 at z~2.8 vs 1.73e-4 at z~1.03). That is cosmology, and it penalises
+   the *ratio* for both strategies equally.
+
+Net: drift 105 / 4.3 = 24x better ratio; raster 2.5 / 4.3 = 1.7x worse. Both
+reproduce the measurements.
+
+**Consequence, and it is a warning about this series' headline metric:
+`residual/HI` is not comparable across bands.** It conflates instrument
+performance with signal amplitude. Within a band it is fine; across bands,
+quote the foreground residual and the HI amplitude separately.
+
+**Three explanations were proposed and refuted before the decomposition**, all
+worth not re-proposing: (a) the raster's cross-scan sampling degrading with
+frequency -- refuted, its mode density is 1.83x the drift's at 700 MHz;
+(b) the evaluation region sitting in the raster's beam wings -- refuted, both
+fields are co-pointed at dec 9.3° (the raster's declination needs the full
+`sin d = sin(phi) sin(h) + cos(phi) cos(h) cos(A)`, not the az=0 form);
+(c) patch-average vs local mode density -- refuted by `local_modes.py`, which
+computes `sum_{i in region} (WA)_ii` and preserves the ordering (raster 124.48
+vs drift 57.69 per 100 deg² locally, with the worse residual).
+
+`local_modes.py` is worth keeping regardless: it is the honest local version of
+the mode count, and it shows the patch average understates the evaluation
+region's mode density by 1.4-2.4x in every case.
+
+
+### Design figures, and two gaps closed (added 2026-09-22 evening)
+
+`ska_hi_design.py` draws all of these from cached results in seconds. They are
+prototypes for the paper, not final art; every number on them is measured.
+
+| figure | what it is for |
+|---|---|
+| `hi_design.png` | the headline. Two regimes at 350-400 MHz: the ladder is a shallow power law (slope -1.28 over 3 → 12 dishes), cross-linking is a **9.3x step change at 2%-matched mode density**. Plus the lever chart, now on the FLOOR rather than the mode count. |
+| `hi_frequency_design.png` | why `residual/HI` must not be compared across bands: instrument, cosmology, and their misleading quotient, in three panels. |
+| `hi_cleaning_depth.png` | the referee's first question. Residual and surviving HI both fall with PCA depth, the residual faster, so the net never turns over. **There is no optimal cleaning depth: the limit is the floor.** |
+| `hi_ladder.png` | the drift's only geometry lever, out to 20 dishes, with the two measured floors overlaid. |
+| `hi_ladder_geometry.png` | the ladder as sky geometry, for explaining it to others. |
+| `hi_chromatic.png` | **why the floor is immune to PCA** (see below). |
+| `hi_priorvar.png` | prior-amplitude robustness. |
+
+#### Why the floor survives foreground cleaning (`hi_chromatic.png`)
+
+Built from `results/hi_rank_f350_400_nc32_ns64.npz`, which already existed --
+no new compute. Foreground cleaning assumes the contaminant is spectrally
+smooth and therefore low-rank. Three facts, all measured:
+
+1. **Rank.** The foreground is rank 1 (one mode carries 99% of its variance).
+   The floor needs 2 (raster) to 6 (drift). The HI needs 23-25 of 32 -- it is
+   the one component that is genuinely not compressible.
+2. **Shape.** The foreground's first eigenvector is a clean monotonic power
+   law; the floor's first three are progressively structured; the HI's is
+   noise-like from the start. That progression is what "chromatic" means
+   concretely -- `WA` varies across the band, so the floor carries spectral
+   structure the sky never had.
+3. **Overlap.** Principal angles between the floor's subspace and the HI's have
+   cosines **0.42-0.78**. They are nowhere near orthogonal, so projecting out
+   the floor necessarily removes HI. This is the reason deeper cleaning cannot
+   win, and it is the same statement `hi_cleaning_depth.png` shows empirically.
+
+#### HI realisation scatter -- the error bar (PLAN item 7, DONE)
+
+`run_hi_experiment.py --hi-seed N` varies the true HI seed alone, leaving the
+noise seeds and pixels fixed, so the spread isolates HI realisation scatter.
+Six such runs (seeds 11-16, tag `seed<N>`) plus the three existing runs give
+**nine realisations on the same 119 interior pixels**. Figure
+`hi_realisations.png`; results in `results/hi_experiment_seed*_*.npz`.
+
+| | N | mean | sd | range |
+|---|---|---|---|---|
+| drift | 9 | 391.5 | **52.5 (13.4%)** | 329.6-511.4 |
+| raster | 9 | 26.1 | **2.3 (8.7%)** | 22.7-29.9 |
+| **drift / raster** | 9 | **14.9** | **1.0 (6.4%)** | -- |
+
+**Quote ratios between strategies, not absolute residuals.** The paired ratio
+is tighter than either absolute because the realisation partly cancels when
+both strategies see the same HI field. The cross-linking comparison therefore
+carries a ~6% error bar, not ~13%.
+
+**The published headline is on the optimistic side.** 347.3 sits 0.85 sd below
+the mean of 391.5, and the raster's 24.0 likewise below 26.1. The published
+*ratio*, 14.5, is representative of the mean 14.9 -- another argument for the
+ratio being the quotable quantity.
+
+**Consistency check:** the median transfer function is identical across all
+seeds (0.829 drift, 0.873 raster), because the mocks use fixed seeds 1000+j and
+are unaffected by the true HI seed. So the spread is genuinely in the
+realisation and is not leaking in from the transfer-function estimate.
+
+**Scale check, and why this matters:** 13% is the same size as several effects
+this series has reported. It is why the cost-matched ladder test (0.5 -> 0.25
+beams, an 8.7% mode-density change) came out inconclusive, and it is the bar
+any future sub-20% claim has to clear.
+
+
+### PICK UP HERE — state as of 2026-09-23 morning
+
+Everything below needs an Ilifu connection. The ControlMaster expires after 8 h,
+so start with `ssh ilifu` **in a real terminal** (the OTP prompt needs a TTY;
+an agent cannot do it). `ssh ilifu-transfer` too if anything large must move —
+though all the result npz files are small enough for
+`ssh ilifu "bash -lc 'cat <remote>'" > <local>`.
+
+**Outstanding: the 500-550 MHz band.** Cache warming **completed** overnight
+2026-09-22/23 (arrays 13858382 / 13858383, 32/32 each, 192 task records
+COMPLETED, zero failures). The experiment + ablation was submitted 2026-09-23
+as Ilifu job **13858845** (`run_hi_f500.sbatch f500 drift raster`, ~1.5 h).
+It is the third point on `hi_frequency_design.png`, which until it lands has
+only two bands and therefore shows line segments rather than curves.
+
+When it finishes:
+
+```bash
+# check it completed
+ssh ilifu "bash -lc 'sacct -j 13858845 --format=State,Elapsed -n | head -1'"
+
+# pull, then redraw (ska_hi_design.py picks the band up automatically)
+for f in hi_experiment_f500_f500_550_nc32_ns128.npz \
+         hi_ablation_f500_f500_550_nc32_ns128.npz; do
+  ssh ilifu "bash -lc 'cat ~/ska/limTOD-src/examples/SKA/results/$f'" > results/$f
+done
+/home/geoff/limTOD/.venv/bin/python ska_hi_design.py
+```
+
+**Everything else is complete and pulled locally.** All seven design figures
+regenerate from cache in seconds. The only figure that will change when the
+500 MHz band lands is `hi_frequency_design.png`.
+
+**Higher bands would need nside 256.** 850-900 MHz gives 3.4 px/FWHM at nside
+128 and 1025-1075 gives 2.8, both below this series' own safe floor (see the
+grid check above). That is a much larger job than the 700 MHz repeat and is
+not queued.
+
+**Open question the frequency work raised, for PLAN:** the drift/raster ordering
+inverts between 350 and 700 MHz, so "cross-linking is the lever" is a
+band-specific statement. Every claim of that form in `paper/ska_drift/main.tex`
+and in the earlier sections of this file needs "at 350 MHz" attached, or
+re-checking. The 500 MHz point will show whether the crossover is smooth.
+
+
 ---
 
 ## Queued next

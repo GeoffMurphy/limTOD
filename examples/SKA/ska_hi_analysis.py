@@ -145,6 +145,18 @@ def common_patch(operator_sets):
 # Solving
 # ---------------------------------------------------------------------------
 
+# Prior variance in units of the truth patch variance. 1.0 is what every
+# published number in experiment 006 used; ``ska_hi_priorvar.py`` sweeps it.
+#
+# The prior mean is already flat (a constant at the patch mean, set by each
+# caller), so this scalar is the ONLY place the prior still carries information
+# about the truth. It is also the data-vs-prior crossover in
+# ``tr(WA) = sum lambda/(lambda + S^-1)``, which means it moves the measured
+# mode count and the beam + prior floor together -- the two axes of the design
+# figure. Raising it loosens the prior.
+PRIOR_VAR_SCALE = 1.0
+
+
 def _solve_args(mm, fg_truth_patch):
     """Noise weights and prior, held identical across every solve.
 
@@ -155,7 +167,8 @@ def _solve_args(mm, fg_truth_patch):
     nv_floor = X.WHITE_VAR * (1e-3 * float(np.mean(fg_truth_patch)))**2
     return dict(
         Tsky_prior_inv_cov_diag=np.ones_like(fg_truth_patch)
-        / max(float(np.std(fg_truth_patch)), 1e-3)**2,
+        / (PRIOR_VAR_SCALE
+           * max(float(np.std(fg_truth_patch)), 1e-3)**2),
         noise_variance=[X.WHITE_VAR * (np.asarray(o) @ fg_truth_patch)**2
                         + nv_floor for o in mm.Tsys_operators],
         regularization=1e-12, return_full_cov=False)
