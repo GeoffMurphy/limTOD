@@ -110,6 +110,7 @@ DRIFT_UTC = "2024-04-15 19:00:00"
 # simulated_TODs_ska_meerklass_offplane_gauss.npz exactly (0.0000 deg).
 RASTER_EL = 38.19
 RASTER_AZ_HALFWIDTH = 7.5
+RASTER_NARROW_HALFWIDTH = 2.0   # depth-matched as far as the geometry allows
 RASTER_SWEEP_S = 150.0
 RASTER_PASS_S = 5400.0
 RASTER_PASSES = [(45.0, 16.401), (315.0, 20.961)]   # az centre, start hour
@@ -190,16 +191,38 @@ def drift_pointings():
     return _drift_pointings(DRIFT_ELEVATIONS)
 
 
-def raster_pointings():
-    """(time, azimuth, elevation) per pass for the off-plane raster."""
+def _raster_pointings(halfwidth_deg):
+    """(time, azimuth, elevation) per pass, for a given azimuth throw.
+
+    Seeds are ``SEED + i`` regardless of the throw, so a narrowed raster reuses
+    the published one's noise realisations and the comparison stays controlled.
+    """
     out = []
     for i, (az_centre, start_h) in enumerate(RASTER_PASSES):
         tlist, azlist, _ = constant_elevation_scan(
-            RASTER_PASS_S, az_centre, RASTER_AZ_HALFWIDTH, RASTER_SWEEP_S,
+            RASTER_PASS_S, az_centre, halfwidth_deg, RASTER_SWEEP_S,
             dt=DT, t0_s=start_h * 3600.0)
         out.append(dict(tlist=tlist, azlist=azlist, el=RASTER_EL,
                         seed=SEED + i))
     return out
+
+
+def raster_pointings():
+    """(time, azimuth, elevation) per pass for the off-plane raster."""
+    return _raster_pointings(RASTER_AZ_HALFWIDTH)
+
+
+def rasternarrow_pointings():
+    """The depth-matched raster (PLAN item 5).
+
+    ``ska_hi_raster_depth.py`` swept the throw and found the raster cannot be
+    brought all the way to the drift's depth: coverage is set mostly by the
+    22.5 deg of RA that drifts past in 1.5 h and by the beam width, not by the
+    throw, so 2 deg (already sub-beam, FWHM 3.98 deg) still selects 377 px
+    against the drift's 316. It does close the depth gap from 0.46x to 0.84x
+    of the drift's samples per pixel, which is as far as the geometry allows.
+    """
+    return _raster_pointings(RASTER_NARROW_HALFWIDTH)
 
 
 # Declination-ladder variants (Tier 2 of PLAN item 6, drift half). Each gets
@@ -227,6 +250,7 @@ DRIFT_LADDERS = {
 STRATEGIES = {
     "drift": dict(pointings=drift_pointings, utc=DRIFT_UTC),
     "raster": dict(pointings=raster_pointings, utc=RASTER_UTC),
+    "rasternarrow": dict(pointings=rasternarrow_pointings, utc=RASTER_UTC),
 }
 for _name, _els in DRIFT_LADDERS.items():
     STRATEGIES[_name] = dict(

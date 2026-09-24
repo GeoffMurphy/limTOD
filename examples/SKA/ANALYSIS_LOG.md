@@ -369,6 +369,15 @@ never measured, filled by the prior, whose frequency structure is set by the
 chromatic null space. PCA cannot remove it because it is not spectrally smooth.
 This is the concern of the 2026-08-12 entry, confirmed and quantified.
 
+> **Superseded numbers, noted 2026-09-23.** The `0.2%` and `38x` above are
+> *as-run* values and were correct as measured. The 2026-08-26 common-resolution
+> re-run is the convention the paper now quotes, and on the same 4 modes it
+> gives floor-vs-total agreement of +3.7% (drift) / +6.1% (raster) and a noise
+> separation of 52x / 10x in amplitude. The conclusion is unchanged — the
+> residual is the floor, not noise — only the tightness of the agreement.
+> `paper/ska_drift/main.tex` was corrected to the common-resolution figures on
+> the same date; the prose here is deliberately left as first written.
+
 **Consequence for the deliverable.** The transfer function is well measured —
 injection is differential and mock-averaged, so the floor does not enter it —
 but there is nothing in the data to correct. The cross-power estimator meant to
@@ -460,7 +469,8 @@ statement of the result in the whole set.
 
 <div class="figblock">
 <img class="figure" src="figures/hi_ablation.png" alt="Ablation: floor against total against noise">
-<p class="caption"><em>Figure 3 — they agree to 0.2% in power: the open rings (full data) sit on the floor line at every mode count, for both strategies, while noise alone runs $\sim\!38\times$ lower. The blocker is structural — the beam + prior floor — not sensitivity.</em></p>
+<p class="caption"><em>Figure 3 — floor and total agree, the open rings (full data) sitting on the floor line at every mode count for both strategies, while noise alone runs far below it. The blocker is structural — the beam + prior floor — not sensitivity.</em></p>
+<p class="caption"><small>(Caption de-numbered 2026-09-23. The original read "agree to 0.2%&hellip; noise runs $\sim\!38\times$ lower", which were the <em>as-run</em> values. <code>fig_ablation</code> has drawn <code>tag="cr_"</code> since 2026-08-26, so the image now shows common resolution: agreement is +3.7% (drift) / +6.1% (raster) and the noise separation is 52x / 10x in amplitude. The surrounding prose is left as written — those as-run numbers were correct when measured.)</small></p>
 </div>
 
 **The frequency-structure split.** Write each cube as a per-pixel mean over channels plus a fluctuation, $x(\nu, p) = \bar x(p) + \delta x(\nu, p)$ with $\bar x(p) = N_c^{-1}\sum_\nu x(\nu, p)$. The two ratios that matter are

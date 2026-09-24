@@ -924,13 +924,190 @@ To redraw everything after any change:
 /home/geoff/limTOD/.venv/bin/python ska_hi_design.py   # all 8 figures, ~1 min
 ```
 
-**The one outstanding task is writing, not computing.** Every claim of the form
-"cross-linking is the lever" is a statement about the *bottom* of Band 1. The
-500 MHz point now puts the crossover at ~600 MHz, so these need the qualifier
-"at 350 MHz" (or re-checking against the three-band table):
+**Writing, not computing, is what is left.** A correction pass went through
+`paper/ska_drift/main.tex` on 2026-09-23:
 
-- `paper/ska_drift/main.tex`
-- the earlier sections of this file, above "Frequency repeat at 675-725 MHz"
+- the ablation caption's `0.2%` / `~38x` were *as-run* values, but the figure
+  has drawn common resolution since 2026-08-26 -- now a few per cent, and
+  52x (drift) / 10x (raster) below the floor in amplitude;
+- the residual table's last row said **"Cross-linking gain"** and was in fact
+  the drift/raster ratio. The two strategies also differ in mode density
+  (14.6 against 22.3 per 100 deg²), so it confounds the two. Relabelled
+  "Drift / raster", with the matched-density 9.3x in the caption;
+- the abstract and discussion skeletons now carry the band qualifier and the
+  ~600 MHz crossover.
+
+`ANALYSIS_LOG.md` keeps its as-run numbers under a dated supersession note --
+they were correct when measured, and a chronological log should not be
+rewritten. Only its Figure 3 caption changed, since that image regenerates.
+
+`main.tex` also now finds figures directly: `\graphicspath` searches
+`../../figures/` (where both plotting scripts write) **first**, then the
+paper-local `figures/` as a fallback, so regenerating a figure reaches the
+paper with no copy step. The local copies are 2026-09-21 snapshots, kept only
+so the build survives a figure that stops being generated; `main.fls` confirms
+all six figures now resolve from `../../figures/`. Both directories are
+gitignored (bare `figures/` in the root `.gitignore`), so a clean checkout
+needs the plotting scripts run before it will build.
+
+**The two venvs are not interchangeable**, which cost a wrong header comment:
+`ska_hi_plots.py` builds an HI cube and needs `pyccl`, which only
+`/home/geoff/gibbs_venv_312` has. `ska_hi_design.py` only reads cached `.npz`
+and runs under either. `figures/hi_ablation.png` had been missing entirely
+until `ska_hi_plots.py` was re-run on 2026-09-23.
+
+**Figure set reworked for a survey-design paper (2026-09-23).** Four figures
+out, eight in, leaving ten:
+
+| out | why |
+|---|---|
+| `hi_rank` + `hi_eigenvectors` | both subsumed by `hi_chromatic`, whose three panels are rank, eigenvectors **and** the principal angles between the floor and HI subspaces -- the last being the actual argument, and the only one not previously drawn |
+| `hi_frequency_structure` | a 350 MHz diagnostic of *why the drift fails*; the design paper makes that point structurally (`hi_chromatic`) and across bands (`hi_frequency_design`) |
+| `hi_residual_vs_modes` | superseded by `hi_cleaning_depth`, same curve over three bands plus the net of signal loss |
+
+In, by section: `hi_ladder_geometry` (§2.3), `hi_priorvar` (§3),
+`hi_ladder` (§4), `hi_cleaning_depth` + `hi_realisations` (§6),
+`hi_chromatic` (§7), and a new **§Survey design** carrying `hi_design` and
+`hi_frequency_design`. Kept: `hi_transfer_function`, `hi_ablation`.
+
+**Layout bug, fixed.** mnras is two-column: `\textwidth` is 508 pt but the
+column is 244 pt, so every `\includegraphics[width=\textwidth]` inside a
+single-column `figure` overflowed by exactly 264 pt. All ten figures are now
+`figure*`, and `tab:modes` / `tab:residual` are `table*`. Overfull boxes went
+8 → 0. The paper is 7 pages.
+
+**`fig_ladder` was being called without half its data.** `main()` assigned
+`lad_long` and never passed it, so `hi_ladder.png` stopped at N = 8 while its
+own subtitle claimed "does not saturate" and the docstring said "out to 20
+dishes". It now receives `hi_ladder_long_ns64.npz` (N up to 20) and the two
+measured floors (3 dishes 399.6x, 12 dishes 239.3x) as overlay points.
+
+**Figure tuning now lives in a notebook (2026-09-23).**
+`ska_hi_paper_figures.ipynb` holds all ten paper figures, each cell carrying
+the **real source** of its `fig_*` function (via `inspect.getsource`), so
+colours, labels and layout can be tuned in place. A `set_palette()` cell
+pushes colour changes into both modules as well as the notebook, so helpers
+like `_tidy` and `_title` follow. Every `fig_*` also takes `text=(title,
+subtitle)` to override headings without touching the body. Saved resolution is
+`P.STYLE["dpi"]` (200), not the notebook's `figure.dpi`, which is display only.
+
+Verified 2026-09-23: all 27 cells run clean under `gibbs_venv_312` and
+reproduce all ten PNGs; the paper rebuilds from them at 7 pages.
+
+`tools_regen_figures_notebook.py` regenerates the notebook from the scripts,
+resolving private helpers transitively (`fig_design` needs `_levers`,
+`_panel_levers`, `_panel_tradespace`). **It is destructive** -- one-way,
+script → notebook -- so tuning done in the notebook must be pasted back into
+the `.py` first.
+
+**Two sources of truth is the cost.** Both the notebook and the scripts write
+to `figures/`, and whichever ran last owns the PNG. There is no guard against
+this; the convention is that the notebook is the live version during tuning
+and the scripts are updated when a change settles.
+
+### Depth-matched raster (PLAN item 5, 2026-09-24)
+
+**Tier 1, done.** `ska_hi_raster_depth.py` sweeps the azimuth throw and counts
+modes off the operator alone (job 13875729, 20 min).
+Results in `results/hi_raster_depth_ns64.npz`.
+
+| throw | px | samp/px vs drift | modes/100 deg² |
+|---|---|---|---|
+| 7.50° (published) | 684 | 0.46x | 22.31 |
+| 5.00° | 550 | 0.57x | 21.22 |
+| 4.00° | 485 | 0.65x | 21.20 |
+| 3.00° | 420 | 0.75x | 21.13 |
+| 2.50° | 411 | 0.77x | 19.96 |
+| **2.00°** | **377** | **0.84x** | **19.86** |
+| *drift* | *316* | *1.00x* | *14.62* |
+
+**The raster cannot be fully depth-matched by narrowing the throw.** Coverage
+is set mostly by the 22.5° of RA that drifts past in 1.5 h and by the beam
+(FWHM 3.98°), not by the throw, so 2° -- already sub-beam -- still selects
+377 px. It closes the depth gap from 0.46x to 0.84x, which is as far as the
+geometry goes. Do not read the remaining 16% as a free parameter.
+
+**The mode-density advantage survives depth-matching**: 19.86 against the
+drift's 14.62 at the deepest throw. This is depth-*inclusive*, since more
+samples per pixel raise the eigenvalues and hence tr(WA) directly, so the
+comparison accounts for depth rather than assuming it away.
+
+**Tier 2, running.** `rasternarrow` (2°, same seeds as the published raster, so
+the noise realisation is controlled) added to `ska_hi_experiment.py`. Cache
+warm array **13876390** (32 tasks), then experiment + ablation **13876408**,
+chained with `--dependency=afterok` so it cannot run against a partial cache.
+Tag `depth`, strategies `drift raster rasternarrow` -- all three in ONE run so
+they share a single HI realisation and the three-way comparison is internally
+consistent.
+
+**Do not compare `depth`'s drift/raster numbers with the published ones.**
+`build_hi_cube` sizes its box from the union of a run's strategies, so a
+different strategy list is a different HI realisation (~15-18%, see the
+realisation-scatter section). Within the run it is exact; across runs use
+ratios.
+
+When it lands: pull `hi_{experiment,ablation}_depth_f350_400_nc32_ns64.npz`
+and read the floor for the three arms at 4 modes, common resolution. The
+question it answers is whether the raster's floor advantage is depth or
+geometry -- the floor depends on `A` alone, but depth enters `A` through the
+data-vs-prior balance of Eq. neff, so it is not answerable by argument.
+
+
+### Section 5 is blocked on a prior, not on figures (found 2026-09-24)
+
+Filling the paper's empty "Foreground reconstruction" section (experiments
+001-005) ran into this: **every `summary_*.png` is dated 2026-07-31 and is
+therefore a smoothed-prior solve**, while the flat-prior audit of 2026-08-13
+concluded "quote the **flat-prior** gains when the claim is about what the
+survey measures". The two disagree by a lot:
+
+| off-plane, no HP, gauss | per-pixel | beam-scale |
+|---|---|---|
+| smoothed prior (what the figures show) | -10.0% | -37.8% |
+| flat prior (what the text should quote) | **-32.6%** | **-46.4%** |
+
+So dropping `summary_offplane_strategy.png` in and writing the flat-prior
+numbers around it would reproduce exactly the `hi_ablation` caption failure:
+a caption describing numbers its own figure does not show.
+
+`audit_flat_prior.py` re-solves this in ~1 min but **writes no figures** --
+it is numbers only, and only for the experiment-004 cross-linking comparison,
+not for the noise budget or the residual RMS. The three figures §5 wants
+(`summary_residual_rms`, `summary_noise_budget`, `summary_offplane_strategy`)
+all come from `ska_results_summary.ipynb`, on the smoothed prior.
+
+Three ways out, none of them free:
+
+1. **Regenerate the three under the flat prior.** Extend `audit_flat_prior.py`
+   to emit the budget and RMS, then re-plot. Makes §5 self-consistent and is
+   the only option that lets the text quote the numbers HANDOFF says to quote.
+2. **Caption them explicitly as smoothed-prior** and quote smoothed-prior
+   numbers in §5. Cheap and honest, but it contradicts the 2026-08-13 guidance
+   and invites the question of why two sections use two priors.
+3. **Write §5 from numbers, no figures.** Defers the choice.
+
+Note the qualitative claim is safe under either prior and in fact strengthens
+under the flat one: withdrawing the prior's structure costs the drift 40% and
+the raster 5%, so the floor grows and "1/f is not the limiter" gets *stronger*.
+It is the quoted percentages that move.
+
+**Added meanwhile:** `meerklass_scan_tracks.png` into Sec. 2.3. It is pure
+geometry -- boresight tracks plus the drift patch -- so it is prior-independent
+and safe, and it is the paper's only picture of the crossing that the whole
+argument rests on.
+
+**Also unresolved, and pre-existing** (from the 2026-08-13 audit, repeated here
+because §5 is where it would be written): off-plane at beam scale the raster's
+floor *exceeds* its total, 0.187 vs 0.181 K smoothed and 0.210 vs 0.199 K flat.
+Adding noise slightly reduces the beam-scale residual, so the floor/noise
+quadrature split does not hold there. Understand this before quoting any
+beam-scale noise term for this field.
+
+
+**Still to do in the text:** the earlier sections of *this file*, above
+"Frequency repeat at 675-725 MHz", still state the cross-linking result
+without the band qualifier. The prose of the paper is still a skeleton --
+this pass changed figures, captions and numbers, not the argument.
 
 **Higher bands would need nside 256.** 850-900 MHz gives 3.4 px/FWHM at nside
 128 and 1025-1075 gives 2.8, both below this series' own safe floor (see the

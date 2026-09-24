@@ -395,11 +395,17 @@ def main():
           f"({d['crosslink_gain']:.1f}x lower)")
     print("wrote", fig_design(d))
 
+    lad = np.load(os.path.join(RESDIR, "hi_ladder_f350_ns64.npz"))
     lad_long = os.path.join(RESDIR, "hi_ladder_long_ns64.npz")
-    print("wrote", fig_ladder(np.load(os.path.join(
-        RESDIR, "hi_ladder_f350_ns64.npz"))))
-    print("wrote", fig_ladder_geometry(np.load(os.path.join(
-        RESDIR, "hi_ladder_f350_ns64.npz"))))
+    # the published drift is 3 strips, drift12 is 12 -- the two geometries for
+    # which a measured HI floor exists, so they are the only overlay points.
+    floors = {n: d[k]["floor"] for n, k in ((3, "drift"), (12, "drift12"))
+              if k in d}
+    print("wrote", fig_ladder(
+        lad,
+        np.load(lad_long) if os.path.exists(lad_long) else None,
+        floors))
+    print("wrote", fig_ladder_geometry(lad))
     pv = os.path.join(RESDIR, "hi_priorvar_tk_f350_400_nc32_ns64.npz")
     if os.path.exists(pv):
         print("wrote", fig_priorvar(np.load(pv)))

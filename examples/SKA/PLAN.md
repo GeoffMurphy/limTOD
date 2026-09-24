@@ -126,10 +126,15 @@ resolution), and both times it was the check, not the run, that found it.
 
 ## Risks
 
-1. **The 2026-08-26 wording drift.** `ANALYSIS_LOG.md` and `paper/main.tex`
-   were deliberately left carrying the old phrasing ("~38x", "0.2%") after the
-   common-resolution re-run. Reconciling them is a writing task, not a physics
-   one, but it is easy to forget and it is wrong in the current text.
+1. **The 2026-08-26 wording drift. RESOLVED 2026-09-23.**
+   `paper/ska_drift/main.tex` now quotes the common-resolution figures (floor
+   vs total to a few per cent; noise 52x/10x below the floor in amplitude), and
+   the residual table's last row is relabelled "Drift / raster" because it was
+   never a cross-linking gain -- the two strategies differ in mode density as
+   well, and controlling for that gives 9.3x rather than 14.4x.
+   `ANALYSIS_LOG.md` keeps its as-run numbers, which were correct when
+   measured, under a dated supersession note; only its Figure 3 caption was
+   changed, because that image regenerates and no longer shows as-run values.
 2. **Item 6 is the only schedule risk with compute in it.** If more crossing
    angles do not move the residual, that is a *result* and the paper absorbs
    it — but it needs to be known by end of October, not in November.
