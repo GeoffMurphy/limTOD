@@ -14,10 +14,11 @@ tuned in the notebook, paste them back into `ska_hi_plots.py` /
 Close the notebook in VSCode first, or VSCode will write its in-memory copy
 back over the new file.
 """
-import inspect, json, os, sys, textwrap
+import ast, builtins, inspect, json, os, sys, textwrap
 sys.path.insert(0, "/home/geoff/limTOD/examples/SKA")
 import ska_hi_plots as P
 import ska_hi_design as D
+import ska_hi_kmodes as K
 
 FIGS = [
     ("hi_ladder_geometry", D, "fig_ladder_geometry", "fig_ladder_geometry(lad)",
@@ -31,6 +32,15 @@ FIGS = [
      "Sec. 4 -- How much sky does a strategy measure",
      "The drift's only geometry lever, out to N = 20, with the two measured "
      "floors overlaid on the middle panel."),
+    ("hi_patch_maps", P, "fig_patch_maps", "fig_patch_maps(exp)",
+     "Sec. 6 -- HI signal recovery",
+     "The field and the pixel sets everything is quoted on: raster-only, the "
+     "277 px all-channel intersection, and the 119 px interior."),
+    ("hi_maps", P, "fig_hi_maps", "fig_hi_maps(exp)",
+     "Sec. 6 -- HI signal recovery",
+     "Map domain. True HI, both map-made responses on one scale, and the "
+     "cleaned data needing a scale 82x wider. PLACEHOLDER -- see the TODO in "
+     "the paper caption."),
     ("hi_transfer_function", P, "fig_transfer_function", "fig_transfer_function(exp)",
      "Sec. 6 -- HI signal recovery",
      "T(k_par) per mode count, +/-1 sigma over 20 mocks."),
@@ -49,7 +59,20 @@ FIGS = [
      "Replaces the old hi_rank + hi_eigenvectors pair."),
     ("hi_design", D, "fig_design", "fig_design(d)",
      "Sec. 8 -- Survey design (headline)",
-     "Two regimes, and the lever chart including the dead levers."),
+     "The trade space: two regimes, and the 9x step at matched mode density. "
+     "Split from the lever chart 2026-09-28."),
+    ("hi_levers", D, "fig_levers", "fig_levers(d)",
+     "Sec. 8 -- Survey design",
+     "Every lever as a factor on the floor, including the three that are "
+     "1.00x exactly. The other half of the old two-panel figure."),
+    ("hi_kmodes", K, "fig_kmodes", "fig_kmodes(kres)",
+     "Sec. 8 -- Survey design",
+     "tr(WA) decomposed by angular scale, and the sky area each strategy would "
+     "need for sigma_P/P = 1 in auto and in cross-correlation."),
+    ("hi_frequency_ratio", D, "fig_frequency_ratio",
+     "fig_frequency_ratio(bands)", "Sec. 8 -- Survey design",
+     "The quotient panel on its own. Same data as the third panel of "
+     "hi_frequency_design, drawn through the same _freq_panel helper."),
     ("hi_frequency_design", D, "fig_frequency", "fig_frequency(bands)",
      "Sec. 8 -- Survey design",
      "Instrument, cosmology and their misleading quotient, over three bands."),
@@ -82,21 +105,38 @@ will write its in-memory copy back over the change.
 `ska_hi_plots` builds an HI cube and needs `pyccl`.
 """),
  md("## Setup"),
- code('''import os, sys
+ code('''# Pick up edits to ska_hi_*.py without restarting the kernel. Without this,
+# a name ADDED to a module after the kernel first imported it raises
+# "ImportError: cannot import name ..." from the cached module object, and the
+# only cure is a restart. Re-run this cell after editing a script.
+%load_ext autoreload
+%autoreload 2
+
+import os, sys
 sys.path.insert(0, "/home/geoff/limTOD/examples/SKA")
+for _m in [m for m in list(sys.modules) if m.startswith("ska_hi")]:
+    del sys.modules[_m]          # force a clean re-import on re-run
 
 import numpy as np
+import healpy as hp
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 from matplotlib.patches import Rectangle
 
 import ska_hi_plots as P
 import ska_hi_design as D
+import ska_hi_kmodes as K
+import ska_hi_analysis as A
+from ska_common import gdsm_equatorial_sky_model
 # brings in the palette, NMODES, RESDIR, collect, load_bands, load_realisations,
 # freq_mode_density, BANDS, SEED_RUNS ... i.e. everything the pasted bodies use.
 from ska_hi_design import *
 # private helpers, which `import *` will not bring across
 from ska_hi_plots import _tidy, _save, _title, _figsize, _load
+# the style registries. ska_hi_design refers to these as P.<name>, but the
+# ska_hi_plots functions pasted below use the bare names, so import them too.
+# anything else the pasted bodies need by bare name is added automatically
+# below by the generator -- do not maintain a list here, it drifts
 
 %matplotlib inline
 # Inline DISPLAY size only. Saved resolution is set by _save(), which uses
@@ -104,23 +144,43 @@ from ska_hi_plots import _tidy, _save, _title, _figsize, _load
 #     P.STYLE["dpi"] = 300
 plt.rcParams["figure.dpi"] = 110
 print("figures ->", P.FIGDIR, "| save dpi =", P.STYLE.get("dpi", 200))'''),
- md("""## Palette
+ md("""## Palette and series styles
 
-The one place to change colours. `set_palette()` pushes the values into this
-notebook **and** into both modules, so helpers like `_tidy` (grid colour) and
-`_title` follow."""),
- code('''PALETTE = dict(
-    DRIFT    = "#2a78d6",   # strategy 1
-    RASTER   = "#eb6834",   # strategy 2
-    THIRD    = "#1baf7a",   # third arm (drift8 / drift12 / 1-f)
-    SURFACE  = "#fcfcfb",   # marker fill / figure background
-    INK      = "#0b0b0b",   # primary text
-    INK2     = "#52514e",   # panel titles
-    MUTED    = "#898781",   # annotations
-    GRID     = "#e1e0d9",
-    BASELINE = "#c3c2b7",
-)
+`set_palette()` pushes colour changes into this notebook **and** into both
+modules, so helpers like `_tidy` (grid colour) and `_title` follow.
 
+**Identity is carried by the MARKER first and hue second**, so a series stays
+readable in greyscale and for colour-vision-deficient readers. Two channels,
+two registries:
+
+- `P.STRAT_ALL[name]` -> `{color, marker, ls, label}` for every strategy
+  (`drift`, `drift8`, `drift12`, `drift3t`, `raster`, `rasternarrow`). Edit a
+  marker here and every figure that plots that strategy follows.
+- `P.MONO` / `P.MONO_STRAT` -> the black-only styles used where a plot has just
+  **two** series, so hue is dropped entirely and linestyle + marker carry it.
+
+`P.STRAT` is deliberately only the two headline arms, because several `fig_*`
+functions *iterate* it and index each strategy's own results keys --- iterating
+the full registry would ask a run for data it does not contain.
+
+Linestyle is the third channel and is spent on a second dimension (band, prior,
+pipeline variant), not on identity --- see `hi_cleaning_depth`, where colour +
+marker is the strategy and linestyle is the band."""),
+ code("PALETTE = dict(\n"
+      # emitted from the module's CURRENT values rather than hardcoded, so a
+      # colour tuned in one place can never silently disagree with the other
+      + "".join(f"    {n:<8s} = \"{getattr(P, n)}\",{c}\n" for n, c in (
+          ("DRIFT",    "   # strategy 1"),
+          ("RASTER",   "   # strategy 2"),
+          ("THIRD",    "   # third arm (drift8 / drift12 / 1-f)"),
+          ("SURFACE",  "   # marker fill / figure background"),
+          ("INK",      "   # primary text"),
+          ("INK2",     "   # panel titles"),
+          ("MUTED",    "   # annotations"),
+          ("GRID",     ""),
+          ("BASELINE", ""),
+      ))
+      + ")\n" + '''
 def set_palette(**kw):
     """Update the palette everywhere: notebook globals and both modules."""
     PALETTE.update(kw)
@@ -152,6 +212,7 @@ d = collect(matched, lad, modes, freq_mode_density(), extra_abl=mech)
 floors = {n: d[k]["floor"] for n, k in ((3, "drift"), (12, "drift12")) if k in d}
 bands  = load_bands()
 vals   = load_realisations()
+kres   = K.compute()   # ~1 min: two eigendecompositions, the only slow cell
 
 for s_ in ("drift", "drift8", "drift12", "raster"):
     if s_ in d:
@@ -194,6 +255,65 @@ for name, mod, fn, call, sec, blurb in FIGS:
                     f"without touching the body, e.g.\n"
                     f"`{call[:-1]}, text=('My title', 'My subtitle'))`."))
     cells.append(code(src + "\n\n" + call))
+
+# --- resolve the pasted bodies' module-level names automatically -----------
+# The figure sources are copied verbatim, so any module CONSTANT they use
+# (TF_PANELS, MONO_STRAT, FLOOR_AMP ...) has to exist in the notebook too.
+# Maintaining that list by hand has broken the notebook twice; compute it.
+def _free_names(src):
+    # cells may carry IPython magics, which are not valid Python
+    src = "\n".join(l for l in src.split("\n")
+                    if not l.lstrip().startswith(("%", "!")))
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return set()
+    loaded = {n.id for n in ast.walk(tree)
+              if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}
+    bound = {n.id for n in ast.walk(tree)
+             if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)}
+    bound |= {f.name for f in ast.walk(tree) if isinstance(f, ast.FunctionDef)}
+    for f in ast.walk(tree):
+        if isinstance(f, (ast.FunctionDef, ast.Lambda)):
+            a = f.args
+            bound |= {x.arg for x in list(a.args) + list(a.kwonlyargs)
+                      + list(a.posonlyargs)}
+            for x in (a.vararg, a.kwarg):
+                if x:
+                    bound.add(x.arg)
+    return loaded - bound
+
+_provided = ({n for n in dir(D) if not n.startswith("_")}   # from ... import *
+             | set(dir(builtins))
+             | {"np", "plt", "Line2D", "Rectangle", "os", "sys", "P", "D", "K",
+                "hp", "A", "gdsm_equatorial_sky_model",
+                "_tidy", "_save", "_title", "_figsize", "_load"})
+_need, _seen = {}, set()
+for c in cells:
+    if c["cell_type"] != "code":
+        continue
+    for n in sorted(_free_names("".join(c["source"]))):
+        if n in _provided or n in _seen:
+            continue
+        _seen.add(n)
+        for mod in (P, K):
+            if hasattr(mod, n):
+                _need.setdefault(mod.__name__, []).append(n)
+                break
+if _need:
+    extra = "\n".join(f"from {m} import {', '.join(sorted(v))}"
+                       for m, v in sorted(_need.items()))
+    print("  auto-imported into the notebook:",
+          {m: sorted(v) for m, v in _need.items()})
+    setup = next(c for c in cells if c["cell_type"] == "code"
+                 and "import ska_hi_plots as P" in "".join(c["source"]))
+    body = "".join(setup["source"])
+    marker = "%matplotlib inline"
+    assert marker in body
+    body = body.replace(marker,
+                        "# resolved automatically by the generator from the "
+                        "pasted figure bodies\n" + extra + "\n\n" + marker)
+    setup["source"] = body.splitlines(True)
 
 nb = {"cells": cells,
       "metadata": {"kernelspec": {"display_name": "Python 3", "language": "python",

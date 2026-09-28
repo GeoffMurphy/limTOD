@@ -522,10 +522,23 @@ is the published pipeline with one scalar changed.
 (residual/HI at 4 modes removed, common resolution, interior pixels.)
 
 **1. The trade space is not a picture of the prior.** The prior track has
-log-log slope **+1.8 (drift) / +2.2 (raster)** in the (modes, residual) plane;
-the survey curve through the two published anchors has slope **−6.3**. Opposite
-sign — the tracks *cross* the line rather than run along it. This was the
-question the design figure needed answered before it could be drawn honestly.
+log-log slope **+1.8 (drift) / +2.2 (raster)** in the (modes, residual) plane.
+Every measured survey relation runs the other way: the ladder at **−1.28**
+(drift → drift12, adding dishes) and crossing the tracks at **−22.4**
+(drift8 → raster). Opposite sign either way — the prior tracks run *across*
+the survey relations rather than along them. This was the question the design
+figure needed answered before it could be drawn honestly.
+
+> **Superseded 2026-09-22, corrected 2026-09-28.** This paragraph originally
+> compared the prior tracks against a single **−6.3** survey curve fitted
+> through the two published anchors. That slope was withdrawn below ("adding
+> strips" vs "crossing the tracks") as an artefact of fitting one line across
+> the discontinuity between two regimes, and `collect` no longer emits the
+> `slope`/`ratio` keys it needed. `fig_priorvar` kept drawing it behind a
+> `d=None` default, so the reference line silently vanished from
+> `hi_priorvar.png` while the panel title still claimed "the tracks cross the
+> line". Line dropped and panel retitled 2026-09-28; the conclusion is
+> unchanged, since the sign comparison survives against the measured slopes.
 
 **2. But "modes per unit sky" is not a sufficient statistic on its own.** Two
 numbers settle it:
@@ -536,6 +549,9 @@ numbers settle it:
 - At 10× the raster reaches **33.6 modes/100 deg²**, right at the 36.9 the
   design figure's two-point extrapolation says would bring the residual to 1.
   Its actual residual is **52.5×**.
+  (The 36.9 target came from the retired −6.3 extrapolation, so treat it as
+  illustrative, not a design number — the measured point, 33.6 modes at
+  residual 52.5×, stands on its own.)
 
 Modes bought by loosening the prior are worth nothing; modes bought by
 cross-linking are worth 14×. Physically that is the right statement —
@@ -1005,6 +1021,113 @@ to `figures/`, and whichever ran last owns the PNG. There is no guard against
 this; the convention is that the notebook is the live version during tuning
 and the scripts are updated when a change settles.
 
+### Matched density at 675-725 MHz: is it even reachable? (2026-09-28)
+
+**Cancelled before it ran: jobs 13889456 / 13889467** (`ladder700`, drift +
+drift12 + raster at 675-725). `drift12` is the wrong configuration for this
+question. `ladder()` fixes elevations in beams *at the band bottom* by design,
+so drift12's 1.99 deg step is 0.5 beams at 350 MHz but **~1.0 beam at 700 MHz**
+-- the disjoint regime, where the Tier 1 sweep says strips buy area rather than
+density. It would have measured "the same survey in a different band", not
+matched density.
+
+**Running instead: Tier 1 ladder sweep at 700 MHz, job 13889513.**
+`ska_hi_ladder.py --freq 675.78125 --counts 3 8 12 20 --spacings 0.25
+--out hi_ladder_f700`, nside 128, operator only, no TOD.
+
+**The question it settles.** At 350 MHz a parked drift *can* reach the raster:
+drift12 gets 21.81 against 22.31, and the matched-density comparison then
+leaves cross-linking worth 9.3x. At 700 MHz the raster is at **76.55** per
+100 deg^2 and the published drift at **41.87** -- a factor 1.83 to close. But
+the 350 MHz count sweep saturates near 24 per 100 deg^2, only **1.63x** over
+three strips, because area grows alongside modes. If the same saturation holds
+at 700 MHz the drift tops out near 68 and **cannot** reach the raster --
+in which case "matched density" is not a test that exists at this band, and
+that is itself the answer to whether the 9.3x gap closes.
+
+**Unit trap, now documented in `--freq`'s help.** `ska_hi_ladder.py` quotes
+spacings in beams **at `--freq`**, while `ska_hi_experiment.ladder()` is fixed
+to 350 MHz beams. To hand a swept configuration to the experiment, convert:
+
+    s350 = s_swept * 350.78 / f_swept        (0.25 beams @700  ->  0.125)
+
+Getting this backwards would build a ladder four times too wide.
+
+**Also added to `ska_hi_ladder.py`:** `--freq`, and `--ref-spacing` /
+`--ref-count` for the point where the two sweeps cross. Without the latter the
+count sweep silently ran at the hardcoded `REF_SPACING = 0.5` and ignored
+`--spacings` entirely.
+
+**When it lands.** If some configuration reaches ~76.55, warm it for the f700
+band and run `drift <config> raster` under one tag, as the `matched` run did at
+350 MHz. If none does, write up the saturation instead -- no further compute.
+
+**Not doing:** drift12 at 675-725 for the `hi_cleaning_depth` figure. Geoff is
+content with the single 350-400 MHz drift12 line, and the caption now says so.
+
+
+### Tying modes to science: n_eff(k_perp) and a sufficiency test (2026-09-28)
+
+`ska_hi_kmodes.py`, figure `hi_kmodes.png`, results in
+`results/hi_kmodes_f350_ns64.npz`. Reads cached operators only -- no new runs.
+
+**The decomposition.** Eigen-decompose `A^T N^-1 A`; each mode contributes
+`w_i = lambda_i/(lambda_i + S^-1)` to `tr(WA)`. Give each eigenvector an
+angular power spectrum by direct non-uniform Fourier transform on the tangent
+plane (no regridding), normalised to sum to 1 over k bins. Then
+`n_eff(k) = sum_i w_i f_i(k)` and **`sum_k n_eff(k) = tr(WA)` exactly** --
+verified at 38.78 and 128.09, so this is a decomposition of the published
+number, not a new statistic.
+
+**Result 1: the raster's advantage is nearly scale-independent**, so scale is
+not where it lives either.
+
+| | ratio raster/drift |
+|---|---|
+| large scales, abs(k) < 30 (theta > 12 deg) | 1.44 |
+| near the beam, abs(k) > 60 (theta < 6 deg) | 1.81 |
+| whole range | 1.30 - 2.11 |
+
+**This is the third axis on which mode count fails to explain the floor.** The
+raster beats the drift 1.5x in mode density, 1.8x at best by scale -- and 9.3x
+on the floor at matched density. Density, depth (the 2026-09-24 run) and now
+angular scale have each been eliminated. What is left is the null-space
+*structure*: every drift track has position angle 90 deg.
+
+**Result 2: the drift turns over before the beam.** Its density peaks at
+abs(k) ~ 65 (theta ~ 5.5 deg, about 1.4 beams) and falls, while the raster
+climbs to the beam at abs(k) = 90.4. A single drift strip cannot sample the
+cross-scan direction, so it never reaches beam-scale information.
+
+**Result 3, the sufficiency test -- the useful half for a survey designer.**
+For `N_m` independent modes in a k bin, an auto-spectrum gives
+`sigma_P/P = sqrt(2/N_m)(1 + P_fl/P_HI)` and a cross-correlation against a
+tracer `sigma/P_x = sqrt((P_fl/P_HI)/N_m)/r`. The difference is a **square**,
+because in auto the floor is a **bias** (deterministic given the strategy, so
+sky area cannot average it away) while in cross it is dominated by unmeasured
+*foreground*, uncorrelated with the tracer, hence variance only.
+
+Sky area needed for `sigma/P = 1` at the 350-400 MHz floor:
+
+| | needed | vs now | verdict |
+|---|---|---|---|
+| raster, cross | **2 937 deg^2** | 5.1x | **buildable -- MeerKLASS scale** |
+| drift, cross | 1.1e6 deg^2 | 4 100x | > whole sky |
+| raster, auto | 3.9e6 deg^2 | 6 700x | > whole sky |
+| drift, auto | 3.5e11 deg^2 | 1.3e9x | not a survey question |
+
+So "raster is better" sharpens to: **the raster is within a factor of 5 of a
+useful cross-correlation and the drift is 4 000x away** -- in units a designer
+acts on, rather than the 9.3x ratio.
+
+**Assumptions to state if this is quoted.** `r = 1` for the cross-correlation
+coefficient; Gaussian statistics; the patch-total `N_eff` used as if it were
+one k bin, which is optimistic (the per-bin version is the left panel and has
+not been folded into the right one); floor/HI taken patch-averaged at 4 modes,
+common resolution. The foreground part of the floor is uncorrelated with a
+tracer but the signal-loss part is not -- that is what `T(k)` already corrects.
+
+
 ### Depth-matched raster (PLAN item 5, 2026-09-24)
 
 **Tier 1, done.** `ska_hi_raster_depth.py` sweeps the azimuth throw and counts
@@ -1046,11 +1169,40 @@ different strategy list is a different HI realisation (~15-18%, see the
 realisation-scatter section). Within the run it is exact; across runs use
 ratios.
 
-When it lands: pull `hi_{experiment,ablation}_depth_f350_400_nc32_ns64.npz`
-and read the floor for the three arms at 4 modes, common resolution. The
-question it answers is whether the raster's floor advantage is depth or
-geometry -- the floor depends on `A` alone, but depth enters `A` through the
-data-vs-prior balance of Eq. neff, so it is not answerable by argument.
+**Tier 2 result (jobs 13876390 / 13876408, warm 96/96 COMPLETED, run 36 min).**
+One HI realisation, 96 interior pixels, common resolution, 4 modes removed:
+
+| strategy | depth vs drift | modes/100 deg² | **floor** | total | noise | 1/f |
+|---|---|---|---|---|---|---|
+| drift | 1.00x | 14.62 | **338.6** | 348.9 | 6.57 | 3.96 |
+| raster (7.5°) | 0.46x | 22.31 | **22.6** | 24.6 | 2.17 | 0.40 |
+| rasternarrow (2°) | 0.84x | 19.86 | **36.0** | 36.9 | 1.78 | 0.57 |
+
+**The answer is geometry, not depth, and it is unambiguous.** The depth
+confound, if it were real, predicts that giving the raster the drift's depth
+shrinks its advantage. Instead:
+
+- **At essentially matched depth (0.84x) the raster's floor is still 9.4x
+  better than the drift's.** That is the number the referee question asks for.
+- **Making the raster deeper made it WORSE**, 22.6 -> 36.0, a factor 1.60 --
+  because narrowing the throw costs modes (22.31 -> 19.86 per 100 deg²) and
+  the floor follows the modes, not the depth. Depth and floor move in
+  *opposite* directions here.
+
+**Two independent controls now agree.** Matching mode density by lengthening
+the drift's ladder (`drift12` vs `raster`) gives 9.33x; matching depth by
+narrowing the raster (`drift` vs `rasternarrow`) gives 9.40x. They control
+different things and are not equivalent -- the depth-matched pair still differs
+in mode density -- but both land on ~9.4x from opposite directions, where the
+uncontrolled comparison gives 15.0x.
+
+*Sanity check that the depth change took effect:* the noise term falls
+2.17 -> 1.78 (x0.82) against x0.74 predicted by 1/sqrt(samples per pixel).
+Same direction, right order; the residual difference is the changed mode
+content, not an error.
+
+*Do not compare these absolutes with the published run* -- 96 interior pixels
+against 119, and a different HI realisation. Ratios within the run are exact.
 
 
 ### Section 5 is blocked on a prior, not on figures (found 2026-09-24)

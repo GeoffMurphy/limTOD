@@ -47,24 +47,59 @@ RESDIR = os.path.join(_HERE, "results")
 # --- palette (validated categorical slots 1-3 + chart chrome) ---------------
 DRIFT, RASTER, THIRD = "#2a78d6", "#eb6834", "#1baf7a"
 SURFACE = "#fcfcfb"
-INK, INK2, MUTED = "#0b0b0b", "#52514e", "#898781"
+# INK2/MUTED darkened to near-black 2026-09-28 (house preference: minimal
+# colour, and recessive greys were doing no work once markers carry identity).
+INK, INK2, MUTED = "#0b0b0b", "#070707", "#0E0E0E"
 GRID, BASELINE = "#e1e0d9", "#c3c2b7"
 
-STRAT = {"drift": dict(color=DRIFT, label="Drift (parked, no cross-linking)"),
-         "raster": dict(color=RASTER, label="Raster (cross-linked, ~74$\\degree$)")}
+# Identity rests on MARKER first and hue second, so every series stays
+# separable in greyscale, in print and for colour-vision-deficient readers
+# (house preference, 2026-09-28). Linestyle is the third channel and is spent
+# on a second dimension -- band, prior, pipeline variant -- not on identity.
+#
+# STRAT_ALL is the full registry, for KEYED lookup of any strategy including
+# the ladder and narrow-throw variants. STRAT is the two headline arms only,
+# and is what the fig_* functions ITERATE -- several of them index each
+# strategy's own results keys, so iterating the full registry would ask for
+# data that a given run does not contain.
+STRAT_ALL = {
+    "drift": dict(color=DRIFT, marker="o", ls="-",
+                  label="Drift (parked, no cross-linking)"),
+    "drift8": dict(color=DRIFT, marker="D", ls=(0, (4, 2)),
+                   label="Drift, 8 strips"),
+    "drift12": dict(color=THIRD, marker="s", ls=(0, (4, 2)),
+                    label="Drift, 12 strips"),
+    "drift3t": dict(color=DRIFT, marker="v", ls=(0, (1, 1.8)),
+                    label="Drift, 3 strips (tight)"),
+    "raster": dict(color=RASTER, marker="^", ls="-",
+                   label="Raster (cross-linked, ~74$\\degree$)"),
+    "rasternarrow": dict(color=RASTER, marker="P", ls=(0, (4, 2)),
+                         label="Raster, narrow throw"),
+}
+STRAT = {k: STRAT_ALL[k] for k in ("drift", "raster")}
+
+# Which mode counts fig_transfer_function draws. The run stores 1/2/3/4/6/8/10.
+TF_PANELS = (2, 4, 6, 10)
+
+# Two series on a plot get NO hue: black throughout, separated by linestyle and
+# marker alone. Index into it in plot order; keyed lookups use MONO_STRAT.
+MONO = [dict(color=INK, marker="o", ls="-"),
+        dict(color=INK, marker="^", ls=(0, (5, 2.5))),
+        dict(color=INK, marker="s", ls=(0, (1, 1.8)))]
+MONO_STRAT = {"drift": MONO[0], "raster": MONO[1], "drift12": MONO[2]}
 
 plt.rcParams.update({
     "figure.facecolor": SURFACE, "axes.facecolor": SURFACE,
     "savefig.facecolor": SURFACE,
-    "font.size": 9.5, "axes.labelsize": 10, "axes.titlesize": 10.5,
+    "font.size": 10.9, "axes.labelsize": 11.5, "axes.titlesize": 12.1,
     # Axes furniture in ink rather than the recessive grey the
     # data-viz default suggests -- override via STYLE["rc"] to go back.
     "axes.edgecolor": INK, "axes.labelcolor": INK,
     "xtick.color": INK, "ytick.color": INK,
-    "xtick.labelsize": 8.5, "ytick.labelsize": 8.5,
+    "xtick.labelsize": 9.8, "ytick.labelsize": 9.8,
     "axes.grid": True, "grid.color": GRID, "grid.linewidth": 0.6,
     "axes.spines.top": False, "axes.spines.right": False,
-    "legend.frameon": False, "legend.fontsize": 9,
+    "legend.frameon": False, "legend.fontsize": 10.4,
     "lines.linewidth": 2.0, "figure.dpi": 110, "savefig.dpi": 200,
 })
 
@@ -112,9 +147,9 @@ def _title(fig, title, subtitle, x=0.01, y_title=1.05, y_sub=0.99,
     o = override or {}
     title = o.get("title", title)
     subtitle = o.get("subtitle", subtitle)
-    fig.suptitle(title, color=INK, fontsize=13, fontweight="semibold",
+    fig.suptitle(title, color=INK, fontsize=14.9, fontweight="semibold",
                  x=x, ha="left", y=y_title)
-    fig.text(x, y_sub, subtitle, color=INK2, fontsize=9.4, ha="left")
+    fig.text(x, y_sub, subtitle, color=INK2, fontsize=10.8, ha="left")
 
 
 def _save(fig, name):
@@ -148,70 +183,86 @@ def _load():
 def fig_transfer_function(exp, var="cr_", text=None):
     """T(k_par). Defaults to the common-resolution, interior-pixel variant --
     the pipeline a real analysis would run."""
-    nmodes = [int(n) for n in exp["nmodes_grid"]]
+    # A subset, not the whole grid: seven panels of the same shape said the
+    # same thing seven times. 2/4/6/10 spans the range and keeps 4, the depth
+    # every other figure quotes. Edit TF_PANELS to change it.
+    nmodes = [n for n in TF_PANELS if n in [int(v) for v in exp["nmodes_grid"]]]
     k = exp[f"drift_{var}k"]
-    fig, axes = plt.subplots(2, 4, figsize=_figsize("hi_transfer_function", (13.4, 6.4)), sharex=True, sharey=True)
+    # 2x2 rather than a single row: four panels in a row forced a very wide,
+    # short figure and the curves lost their vertical range.
+    nrow = 2
+    ncol = -(-len(nmodes) // nrow)
+    fig, axes = plt.subplots(
+        nrow, ncol, figsize=_figsize("hi_transfer_function", (9.6, 7.2)),
+        sharex=True, sharey=True)
+    flat = axes.ravel()
 
-    for ax, nm in zip(axes.ravel(), nmodes):
+    for ax, nm in zip(flat, nmodes):
         _tidy(ax)
-        ax.axhline(1.0, color=BASELINE, lw=1.0, ls=(0, (4, 3)), zorder=1)
+        ax.axhline(1.0, color='k', lw=1.0, ls=(0, (4, 3)), zorder=1)
+        # Eight panels of dense, overlapping curves: hue is doing real work
+        # here, so this figure keeps it (house call, 2026-09-28). The markers
+        # still differ, and are thinned so they read against the curve.
         for s, style in STRAT.items():
             t = exp[f"{s}_{var}tf_{nm}"]
             e = exp[f"{s}_{var}tf_scatter_{nm}"]
             ax.fill_between(k, t - e, t + e, color=style["color"], alpha=0.16,
                             lw=0, zorder=2)
-            ax.plot(k, t, color=style["color"], zorder=3,
-                    solid_capstyle="round")
+            ax.plot(k, t, color=style["color"], ls=style["ls"],
+                    marker=style["marker"], ms=4.5, mfc=SURFACE, mew=1.2,
+                    markevery=3, zorder=3, solid_capstyle="round",
+                    label=style["label"])
         ax.set_xscale("log")
         ax.set_title(f"{nm} mode{'s' if nm > 1 else ''} removed",
                      color=INK, pad=6)
         ax.set_ylim(-0.05, 1.15)
         ax.set_xlim(k.min() * 0.9, k.max() * 1.1)
-        # The cell below the last top-row panel holds the legend, so that panel
-        # has to carry its own x axis or the column loses it entirely.
-        if ax is axes[0, -1]:
-            ax.tick_params(labelbottom=True)
-            ax.set_xlabel("$k_\\parallel$  [Mpc$^{-1}$]")
+    # sharex means only the bottom row needs the label
+    for ax in axes[-1, :]:
+        ax.set_xlabel("$k_\\parallel$  [Mpc$^{-1}$]")
+    for ax in flat[len(nmodes):]:
+        ax.set_axis_off()
 
     # Direct labels on the first panel, so identity is not colour-alone.
-    a0 = axes[0, 0]
-    a0.annotate("drift", (k[7], exp[f"drift_{var}tf_{nmodes[0]}"][7]),
+    a0 = flat[0]
+    '''a0.annotate("drift", (k[7], exp[f"drift_{var}tf_{nmodes[0]}"][7]),
                 textcoords="offset points", xytext=(0, -16),
-                color=DRIFT, fontsize=9, fontweight="semibold", ha="center")
+                color=DRIFT, fontsize=10.3, fontweight="semibold", ha="center")
     a0.annotate("raster", (k[7], exp[f"raster_{var}tf_{nmodes[0]}"][7]),
                 textcoords="offset points", xytext=(0, 8),
-                color=RASTER, fontsize=9, fontweight="semibold", ha="center")
+                color=RASTER, fontsize=10.3, fontweight="semibold", ha="center")'''
 
-    # Spare cell carries the legend and the reading instruction.
-    spare = axes.ravel()[len(nmodes)]
-    spare.set_axis_off()
-    spare.legend(handles=[Line2D([], [], color=v["color"], lw=2.4,
-                                 label=v["label"]) for v in STRAT.values()]
-                 + [Line2D([], [], color=BASELINE, lw=1.0, ls=(0, (4, 3)),
-                           label="$T=1$, no signal lost")],
-                 loc="upper left", bbox_to_anchor=(-0.02, 0.95),
-                 handlelength=1.8, labelspacing=0.9)
-    spare.text(-0.02, 0.30,
+    # Legend lives in the first panel: with the spare cell gone there is
+    # nowhere else for it, and the bottom-left of panel 1 is empty because T
+    # rises with k.
+    a0.legend(handles=[Line2D([], [], color=v["color"], ls=v["ls"],
+                              marker=v["marker"], ms=5, mfc=SURFACE,
+                              mew=1.2, lw=2.0, label=v["label"])
+                       for v in STRAT.values()]
+              + [Line2D([], [], color=BASELINE, lw=1.0, ls=(0, (4, 3)),
+                        label="$T=1$, no signal lost")],
+              loc="lower right", fontsize=9.0, handlelength=1.8,
+              labelspacing=0.6)
+    '''spare.text(-0.02, 0.30,
                "Band = $\\pm1\\sigma$ over 20\nindependent HI mocks.\n\n"
                "Loss concentrates at low\n$k_\\parallel$: those modes are the\n"
                "smoothest along the line of\nsight, so PCA mistakes them\n"
                "for foreground.",
-               transform=spare.transAxes, va="top", color=INK2, fontsize=8.6,
-               linespacing=1.5)
+               transform=spare.transAxes, va="top", color=INK2, fontsize=9.9,
+               linespacing=1.5)'''
 
-    for ax in axes[1, :len(nmodes) - 4]:
-        ax.set_xlabel("$k_\\parallel$  [Mpc$^{-1}$]")
     # One shared y label — per-axes labels on a shared axis collide between rows.
     fig.supylabel("$T(k_\\parallel)$   —   fraction of HI power surviving the clean",
-                  color=INK2, fontsize=10, x=0.005)
+                  color=INK2, fontsize=11.5, x=0.005)
 
-    _title(fig, "Cross-linking preserves HI through foreground cleaning at every scale",
+    '''_title(fig, "Cross-linking preserves HI through foreground cleaning at every scale",
              "350$-$400 MHz, 32 channels, nside 64. Channels reconvolved to a "
              "common 3.99$\\degree$ beam, 119 interior pixels. $T$ is each "
              "strategy's ratio against its own injected response, so it is "
              "depth-independent.",
-           x=0.055, y_title=0.985, y_sub=0.938, override=text)
-    fig.tight_layout(rect=(0, 0, 1, 0.925))
+           x=0.055, y_title=0.985, y_sub=0.938, override=text)'''
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    plt.show()
     return _save(fig, "hi_transfer_function")
 
 
@@ -240,13 +291,13 @@ def fig_residual_vs_modes(exp, text=None):
                     mfc=mfc, mec=style["color"], mew=2.0,
                     alpha=1.0 if var == "cr_" else 0.55, zorder=3)
         ax.annotate(s, (nmodes[-1], med[-1]), textcoords="offset points",
-                    xytext=(12, 0), color=style["color"], fontsize=9.5,
+                    xytext=(12, 0), color=style["color"], fontsize=10.9,
                     fontweight="semibold", va="center")
 
     ax.axhline(1.0, color=INK, lw=1.4)
     ax.annotate("HI level — residual would have to reach here",
                 (nmodes[0], 1.0), textcoords="offset points", xytext=(2, 7),
-                color=INK, fontsize=8.8)
+                color=INK, fontsize=10.1)
     ax.set_yscale("log")
     ax.set_xlabel("PCA modes removed")
     ax.set_ylabel("post-clean residual / HI   (amplitude)")
@@ -263,14 +314,14 @@ def fig_residual_vs_modes(exp, text=None):
         ax.set_title(_o.get("title",
                      "Reconvolving to a common beam halves the raster's "
                      "residual, and does nothing for the drift"),
-                     color=INK, fontsize=12, fontweight="semibold", loc="left",
+                     color=INK, fontsize=13.8, fontweight="semibold", loc="left",
                      pad=26)
         ax.text(0, 1.045,
                 _o.get("subtitle",
                        "Both variants on the same 119 interior pixels. Even "
                        "corrected, the cross-linked raster is still "
                        "13$-$30$\\times$ above the HI."),
-                transform=ax.transAxes, color=INK2, fontsize=9.2)
+                transform=ax.transAxes, color=INK2, fontsize=10.6)
     fig.tight_layout()
     return _save(fig, "hi_residual_vs_modes")
 
@@ -323,11 +374,11 @@ def fig_ablation(abl, text=None, tag="cr_"):
         ax.set_yscale("log")
         ax.set_xticks(nmodes); ax.set_xticklabels([str(n) for n in nmodes])
         ax.set_xlabel("PCA modes removed")
-        ax.set_title(STRAT[s]["label"], color=STRAT[s]["color"], pad=6,
+        ax.set_title(STRAT[s]["label"], color='k', pad=6,
                      fontweight="semibold")
     axes[0].set_ylabel("cleaned residual / HI   (amplitude)")
     axes[0].annotate("HI level", (nmodes[0], 1.0), textcoords="offset points",
-                     xytext=(2, 7), color=INK, fontsize=8.8)
+                     xytext=(2, 7), color=INK, fontsize=10.1)
 
     # Figure-level and horizontal: inside either panel it collides with the
     # noise curve or the HI-level line.
@@ -340,12 +391,13 @@ def fig_ablation(abl, text=None, tag="cr_"):
                loc="upper left", bbox_to_anchor=(0.045, 0.90), ncols=4,
                handlelength=2.0, columnspacing=1.8)
 
-    _title(fig, "The blocker is the floor, and 1/f is the smallest term in it",
+    '''_title(fig, "The blocker is the floor, and 1/f is the smallest term in it",
              "Noiseless and full data track each other to a few per cent. Split "
              "apart, 1/f sits below the white noise, which is itself far below "
              "the floor — so neither is what limits HI recovery.",
-           x=0.045, y_title=1.03, y_sub=0.965, override=text)
+           x=0.045, y_title=1.03, y_sub=0.965, override=text)'''
     fig.tight_layout(rect=(0, 0, 1, 0.84))
+    plt.show()
     return _save(fig, "hi_ablation")
 
 
@@ -368,7 +420,7 @@ def fig_frequency_structure(exp, text=None):
         # Label at the left end, where the two curves are furthest apart and
         # there is clear space; at the right end they collide with the markers.
         ax.annotate(s, (k[0], ratio[0]), textcoords="offset points",
-                    xytext=(6, 10), color=style["color"], fontsize=9.5,
+                    xytext=(6, 10), color=style["color"], fontsize=10.9,
                     fontweight="semibold", ha="left")
     ax.set_xscale("log")
     ax.set_ylim(0, 0.42)
@@ -399,12 +451,12 @@ def fig_frequency_structure(exp, text=None):
             ax.annotate(f"{v:.2f}$\\times$",
                         (b.get_x() + b.get_width() / 2, v),
                         textcoords="offset points", xytext=(0, 4),
-                        ha="center", color=INK, fontsize=9.5,
+                        ha="center", color=INK, fontsize=10.9,
                         fontweight="semibold")
     ax.axhline(1.0, color=INK, lw=1.4, zorder=4)
     # Left of the bars: at the right it collides with the raster bar's label.
     ax.annotate("1.0 — faithful", (-0.47, 1.0), textcoords="offset points",
-                xytext=(0, 6), color=INK, fontsize=8.8, ha="left")
+                xytext=(0, 6), color=INK, fontsize=10.1, ha="left")
     ax.set_xticks(x); ax.set_xticklabels(groups, color=INK2)
     ax.set_ylabel("map-made / true   (rms ratio)")
     ax.set_ylim(0, 3.7)
@@ -477,8 +529,8 @@ def hp_unseen():
 def _mapshow(ax, img, cmap, vmin, vmax, title, extent):
     im = ax.imshow(img, origin="lower", cmap=cmap, vmin=vmin, vmax=vmax,
                    extent=extent, interpolation="nearest")
-    ax.set_title(title, color=INK, fontsize=10, pad=5)
-    ax.set_xlabel("offset  [deg]", fontsize=8.5)
+    ax.set_title(title, color=INK, fontsize=11.5, pad=5)
+    ax.set_xlabel("offset  [deg]", fontsize=9.8)
     ax.grid(False)
     ax.tick_params(labelsize=8)
     return im
@@ -510,8 +562,8 @@ def fig_patch_maps(exp, nside=64, channel=None, text=None):
                   np.nanpercentile(sky, 99),
                   "GDSM foreground at 350 MHz", extent)
     cb = fig.colorbar(im, ax=axes[0], shrink=0.62, aspect=15, pad=0.02)
-    cb.set_label("$T_b$  [K]", fontsize=8.5); cb.ax.tick_params(labelsize=8)
-    axes[0].set_ylabel("offset  [deg]", fontsize=8.5)
+    cb.set_label("$T_b$  [K]", fontsize=9.8); cb.ax.tick_params(labelsize=8)
+    axes[0].set_ylabel("offset  [deg]", fontsize=9.8)
 
     # (b) coverage. Categorical, so it uses the categorical slots, not a ramp.
     from matplotlib.colors import ListedColormap, BoundaryNorm
@@ -525,8 +577,8 @@ def fig_patch_maps(exp, nside=64, channel=None, text=None):
     axes[1].imshow(img, origin="lower", cmap=cmap,
                    norm=BoundaryNorm([-0.5, 0.5, 1.5, 2.5, 3.5], 4),
                    extent=extent, interpolation="nearest")
-    axes[1].set_title("What each strategy solves", color=INK, fontsize=10, pad=5)
-    axes[1].set_xlabel("offset  [deg]", fontsize=8.5)
+    axes[1].set_title("What each strategy solves", color=INK, fontsize=11.5, pad=5)
+    axes[1].set_xlabel("offset  [deg]", fontsize=9.8)
     axes[1].grid(False); axes[1].tick_params(labelsize=8)
     n_rast_only = len(ops["raster"].pixel_indices) - len(common)
     axes[1].legend(handles=[
@@ -534,7 +586,7 @@ def fig_patch_maps(exp, nside=64, channel=None, text=None):
         Patch(facecolor=DRIFT, label=f"common to both ({len(common)} px)"),
         Patch(facecolor="#0d366b",
               label=f"interior, used for common-res ({interior.sum()} px)")],
-        loc="upper left", bbox_to_anchor=(0.0, -0.12), fontsize=8.6)
+        loc="upper left", bbox_to_anchor=(0.0, -0.12), fontsize=9.9)
     for ax in axes:                 # the patch is a wide strip; square axes
         ax.set_ylim(-11, 11)        # would be mostly empty page
 
@@ -635,18 +687,18 @@ def fig_hi_maps(exp, nside=64, nmodes=4, text=None, variant="cr_"):
     for ax in (flat[1], flat[3]):
         ax.tick_params(labelleft=False)
     for ax in (flat[0], flat[2]):
-        ax.set_ylabel("offset  [deg]", fontsize=8.5)
+        ax.set_ylabel("offset  [deg]", fontsize=9.8)
     # One bar for the three panels that share a scale, one for the outlier --
     # four identical bars would imply four different scales. The odd one is
     # horizontal under its own panel so the split reads before the numbers do.
     cb = fig.colorbar(ims[0], cax=cax_shared)
-    cb.set_label("$\\delta T_b$  [$\\mu$K]", fontsize=8.5)
+    cb.set_label("$\\delta T_b$  [$\\mu$K]", fontsize=9.8)
     cb.ax.tick_params(labelsize=8)
     cb2 = fig.colorbar(ims[3], cax=cax_clean, orientation="horizontal")
     # Derived, not hardcoded: the ratio moves with `nmodes` (51x at 4 modes,
     # 186x at 2, 18x at 8), and a fixed "50x" would quietly go wrong.
     cb2.set_label(f"$\\delta T_b$  [$\\mu$K] — {v_clean / v:.0f}$\\times$ "
-                  "the shared scale", fontsize=8.5)
+                  "the shared scale", fontsize=9.8)
     cb2.ax.tick_params(labelsize=8)
 
     _title(fig, "The HI in the map domain, and why you cannot see it",
@@ -684,7 +736,7 @@ def fig_rank(rank, nshow=20, text=None):
     ax.set_xlabel("eigenmode of the channel-channel covariance")
     ax.set_ylabel("$\\lambda_i\\,/\\,\\lambda_1$")
     ax.set_title("Eigenspectrum", color=INK, pad=6)
-    ax.legend(loc="center right", fontsize=8.4)  # lower left sits on the GDSM line
+    ax.legend(loc="center right", fontsize=9.7)  # lower left sits on the GDSM line
 
     ax = _tidy(axes[1])
     for key, colour, label, ls in series:
@@ -695,7 +747,7 @@ def fig_rank(rank, nshow=20, text=None):
     for frac, lbl in ((0.90, "90%"), (0.99, "99%")):
         ax.axhline(frac, color=BASELINE, lw=1.0, ls=(0, (4, 3)))
         ax.annotate(lbl, (nshow, frac), textcoords="offset points",
-                    xytext=(-2, 4), ha="right", fontsize=8.2, color=MUTED)
+                    xytext=(-2, 4), ha="right", fontsize=9.4, color=MUTED)
     ax.set_ylim(0, 1.04)
     ax.set_xlabel("eigenmodes retained")
     ax.set_ylabel("cumulative fraction of variance")
@@ -739,18 +791,18 @@ def fig_modes(modes, nshow=140, text=None):
                 mfc=colour, mec=SURFACE, mew=1.6, zorder=5)
         ax.annotate(f"{n_eff:.0f}", (n_cross, y[n_cross - 1]),
                     textcoords="offset points", xytext=(7, 6), color=colour,
-                    fontsize=10, fontweight="semibold")
+                    fontsize=11.5, fontweight="semibold")
     ax.axhline(1.0, color=INK, lw=1.2, ls=(0, (4, 3)), zorder=2)
     # Left edge: the raster crosses the line near the right, where this label
     # would sit on top of its count.
     ax.annotate("data = prior", (0, 1.0), textcoords="offset points",
-                xytext=(4, 5), ha="left", color=INK, fontsize=8.8)
+                xytext=(4, 5), ha="left", color=INK, fontsize=10.1)
     ax.set_yscale("log")
     ax.set_ylim(1e-4, ax.get_ylim()[1])
     ax.set_xlim(0, nshow)
     ax.set_xlabel("eigenmode of $A^{\\top} N^{-1} A$")
     ax.set_ylabel("$\\lambda_i \\,/\\, S^{-1}$   (data over prior)")
-    ax.legend(loc="upper right", fontsize=9)
+    ax.legend(loc="upper right", fontsize=10.3)
 
     _title(fig, "Cross-linking triples the sky the survey can measure",
              f"Information matrix at {float(modes['freq_mhz']):.0f} MHz, same "
@@ -806,16 +858,16 @@ def fig_1f_scan(scan, abl=None, text=None, cutoff=None):
             ax.axhline(floor, color=INK, lw=1.4, zorder=4)
             ax.annotate(f"beam + prior floor ({floor:.0f}$\\times$)",
                         (knees[0], floor), textcoords="offset points",
-                        xytext=(2, -13), color=INK, fontsize=8.8)
+                        xytext=(2, -13), color=INK, fontsize=10.1)
         ax.axhline(1.0, color=BASELINE, lw=1.0, ls=(0, (4, 3)), zorder=2)
         ax.annotate("HI level", (knees[0], 1.0), textcoords="offset points",
-                    xytext=(2, 4), color=MUTED, fontsize=8.4)
+                    xytext=(2, 4), color=MUTED, fontsize=9.7)
         # The fiducial model, and the frequency the raster actually scans at.
         ax.axvline(float(scan["fiducial_knee_mhz"]), color=MUTED, lw=1.0,
                    ls=(0, (1, 2)), zorder=1)
         ax.annotate("assumed", (float(scan["fiducial_knee_mhz"]), ax.get_ylim()[1]),
                     textcoords="offset points", xytext=(3, -11),
-                    color=MUTED, fontsize=8.4, rotation=90, va="top")
+                    color=MUTED, fontsize=9.7, rotation=90, va="top")
         ax.set_xscale("log"); ax.set_yscale("log")
         # Margin either side: the measured points sit at the left edge of the
         # grid and would otherwise be clipped by the spine.
@@ -841,19 +893,19 @@ def fig_1f_scan(scan, abl=None, text=None, cutoff=None):
                 ax.axhline(floor, color=INK, lw=1.4, zorder=4)
                 ax.annotate(f"floor ({floor:.0f}$\\times$)", (wcs[0], floor),
                             textcoords="offset points", xytext=(2, -13),
-                            color=INK, fontsize=8.8)
+                            color=INK, fontsize=10.1)
             ax.axhline(1.0, color=BASELINE, lw=1.0, ls=(0, (4, 3)), zorder=2)
             ax.axvline(wc_fid, color=MUTED, lw=1.0, ls=(0, (1, 2)), zorder=1)
             ax.annotate("assumed", (wc_fid, ax.get_ylim()[1]),
                         textcoords="offset points", xytext=(3, -11),
-                        color=MUTED, fontsize=8.4, rotation=90, va="top")
+                        color=MUTED, fontsize=9.7, rotation=90, va="top")
             ax.set_xscale("log"); ax.set_yscale("log")
             ax.set_xlim(wcs.min() * 0.7, wcs.max() * 1.4)
             ax.set_xlabel("1/f low-frequency cut-off $\\omega_c$  [mHz]")
         axes[1, 0].set_ylabel("cleaned 1/f residual / HI")
     # Lower right: the curves run bottom-left to top-right, so upper left is
     # where the "assumed" marker lives and lower right is the free corner.
-    axes[0, 0].legend(loc="lower right", fontsize=8.6)
+    axes[0, 0].legend(loc="lower right", fontsize=9.9)
 
     sub = ("Top: knee = where 1/f gain power crosses white. Filled circles are "
            "measured, one per slope; lines are the exact "
@@ -911,7 +963,7 @@ def fig_eigenvectors(rank, nmodes=4, nbars=6, text=None):
                     label=f"mode {m + 1}")
         ax.axhline(0.0, color=BASELINE, lw=1.0)
         ax.set_xlabel("frequency  [MHz]")
-        ax.set_title(title, color=INK, pad=6, fontsize=10)
+        ax.set_title(title, color=INK, pad=6, fontsize=11.5)
 
         # --- bottom: how much each shape carries -----------------------
         ax = _tidy(axes[1, col])
@@ -927,14 +979,14 @@ def fig_eigenvectors(rank, nmodes=4, nbars=6, text=None):
             ax.annotate(f"modes 2$-${len(w)} total\n"
                         f"{w[1:].sum():.0e} of mode 1",
                         (2.6, 0.5), ha="left", va="center",
-                        fontsize=8.6, color=INK2)
+                        fontsize=9.9, color=INK2)
         else:
             for i, v in enumerate(w[1:], start=2):
                 ax.annotate(f"{v:.2f}", (i, v), textcoords="offset points",
-                            xytext=(0, 3), ha="center", fontsize=7.6,
+                            xytext=(0, 3), ha="center", fontsize=8.7,
                             color=INK2)
     axes[0, 0].set_ylabel("eigenvector amplitude  (arb.)")
-    axes[0, 0].legend(loc="upper right", fontsize=8.4, ncols=2)
+    axes[0, 0].legend(loc="upper right", fontsize=9.7, ncols=2)
     axes[1, 0].set_ylabel("$\\lambda_i\\,/\\,\\lambda_1$   (linear)")
 
     _title(fig, "What the components are actually made of",

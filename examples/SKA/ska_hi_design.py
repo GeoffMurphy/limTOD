@@ -201,20 +201,47 @@ def collect(mabl, ladder, modes, fm, nmodes=NMODES, extra_abl=None):
 # ---------------------------------------------------------------------------
 
 def fig_design(d, text=None):
-    fig, (axA, axB) = plt.subplots(
-        1, 2, figsize=P._figsize("hi_design", (14.8, 6.1)),
-        gridspec_kw=dict(width_ratios=[1.25, 1.0], wspace=0.52))
-    _panel_tradespace(axA, d)
-    _panel_levers(axB, d)
-    P._title(fig,
+    """The trade space alone: what a measured mode per unit sky buys.
+
+    Split from the lever chart 2026-09-28 -- the two halves answer different
+    questions and are now placed and discussed separately. ``fig_levers`` is
+    the other half.
+    """
+    fig, ax = plt.subplots(figsize=P._figsize("hi_design", (6.0, 6.0)))
+    _panel_tradespace(ax, d)
+    '''P._title(fig,
              "Cross-linking is not more modes \u2014 it is a different regime",
              "Beam + prior floor at 4 modes removed, common resolution, 119 "
-             "interior pixels. Filled points share one HI realisation, one pixel "
-             "set and one set of noise seeds; the open point is a different run "
-             "(~15% realisation scatter). Mode density is tr($WA$) per unit sky.",
-             x=0.012, y_title=1.04, y_sub=0.975, override=text)
-    fig.tight_layout(rect=(0, 0, 1, 0.92))
+             "interior pixels. Mode density is tr($WA$) per unit sky.\nFilled "
+             "points share one HI realisation, one pixel set and one set of "
+             "noise seeds;\nthe open point is a different run "
+             "(~15% realisation scatter).",
+             x=0.012, y_title=1.045, y_sub=0.910, override=text)'''
+    fig.tight_layout(rect=(0, 0, 1, 0.870))
+    plt.show()
     return P._save(fig, "hi_design")
+
+
+def fig_levers(d, text=None):
+    """Every lever as a factor on the floor, including the ones worth nothing.
+
+    The other half of the old two-panel design figure. Publishing which knobs
+    do *not* work is the more useful half (PLAN.md, "Figure honesty": *put the
+    dead levers on it*), and it needs the room to be read.
+    """
+    fig, ax = plt.subplots(figsize=P._figsize("hi_levers", (10.4, 5.6)))
+    _panel_levers(ax, d)
+    P._title(fig,
+             "Which levers move the floor \u2014 and which move it not at all",
+             "Factor change in the beam + prior floor at 350$-$400 MHz; left "
+             "is better, and the vertical line is no change.\nIntegration time, "
+             "system temperature and co-pointed dish count sit exactly on it: "
+             "the residual\nis 96$-$99% floor, and none of the three adds a row "
+             "to $A$.",
+             x=0.012, y_title=1.045, y_sub=0.910, override=text)
+    fig.tight_layout(rect=(0, 0, 1, 0.870))
+    plt.show()
+    return P._save(fig, "hi_levers")
 
 
 def _panel_tradespace(ax, d):
@@ -235,31 +262,52 @@ def _panel_tradespace(ax, d):
     # drift8 comes from the OTHER run, so it is drawn open and said so.
     if "drift8" in d:
         d8 = d["drift8"]
-        ax.plot([d8["dens"]], [d8["floor"]], marker="o", ms=10, mfc=SURFACE,
-                mec=DRIFT, mew=2.2, zorder=5)
+        ax.plot([d8["dens"]], [d8["floor"]], marker=P.STRAT_ALL["drift8"]["marker"],
+                ms=10, mfc=SURFACE, mec=DRIFT, mew=2.2, zorder=5)
         ax.annotate("8 dishes\n(other run)", (d8["dens"], d8["floor"]),
                     textcoords="offset points", xytext=(-9, -6), ha="right",
-                    va="top", color=MUTED, fontsize=8.2, linespacing=1.4)
+                    va="top", color=MUTED, fontsize=9.4, linespacing=1.4)
 
     for k, lab, off in (("drift", "3 dishes", (-10, 4)),
                         ("drift12", "12 dishes", (12, 12))):
-        ax.plot([d[k]["dens"]], [d[k]["floor"]], marker="o", ms=13,
+        ax.plot([d[k]["dens"]], [d[k]["floor"]],
+                marker=P.STRAT_ALL[k]["marker"], ms=13,
                 color=DRIFT, mec=SURFACE, mew=2.0, zorder=6)
         ax.annotate(lab, (d[k]["dens"], d[k]["floor"]),
                     textcoords="offset points", xytext=off,
                     ha="right" if off[0] < -8 else "left",
-                    color=DRIFT, fontsize=9.4, fontweight="semibold")
-    ax.annotate(f"parked drift, adding dishes\nslope ${d['slope_ladder']:.2f}$",
-                (xlo * 1.04, 110.0), color=DRIFT, fontsize=8.8, ha="left",
-                va="center", linespacing=1.45)
+                    color=DRIFT, fontsize=10.8, fontweight="semibold")
+    '''ax.annotate(f"parked drift, adding dishes\nslope ${d['slope_ladder']:.2f}$",
+                (xlo * 1.04, 110.0), color=DRIFT, fontsize=10.1, ha="left",
+                va="center", linespacing=1.45)'''
 
     # --- the raster, essentially the same mode density, a decade lower -------
-    ax.plot([ra["dens"]], [ra["floor"]], marker="o", ms=13, color=RASTER,
+    ax.plot([ra["dens"]], [ra["floor"]],
+            marker=P.STRAT_ALL["raster"]["marker"], ms=13, color=RASTER,
             mec=SURFACE, mew=2.0, zorder=6)
-    ax.annotate("raster\ncross-linked", (ra["dens"], ra["floor"]),
+    '''ax.annotate("raster\ncross-linked", (ra["dens"], ra["floor"]),
                 textcoords="offset points", xytext=(10, -2), ha="left",
-                va="top", color=RASTER, fontsize=9.4, fontweight="semibold",
-                linespacing=1.4)
+                va="top", color=RASTER, fontsize=10.8, fontweight="semibold",
+                linespacing=1.4)'''
+    # With the in-panel annotations removed, the raster point and the ladder
+    # line have nothing else identifying them, so the legend carries it.
+    ax.legend(handles=[
+        Line2D([], [], color=DRIFT, lw=2.8,
+               label=f"parked drift, slope ${d['slope_ladder']:.2f}$"),
+        Line2D([], [], color=DRIFT, ls="none", ms=10,
+               marker=P.STRAT_ALL["drift"]["marker"], mec=SURFACE, mew=1.6,
+               label="drift, 3 dishes"),
+        Line2D([], [], color=SURFACE, ls="none", ms=9,
+               marker=P.STRAT_ALL["drift8"]["marker"], mec=DRIFT, mew=2.0,
+               label="drift, 8 dishes (other run)"),
+        Line2D([], [], color=DRIFT, ls="none", ms=10,
+               marker=P.STRAT_ALL["drift12"]["marker"], mec=SURFACE, mew=1.6,
+               label="drift, 12 dishes"),
+        Line2D([], [], color=RASTER, ls="none", ms=10,
+               marker=P.STRAT_ALL["raster"]["marker"], mec=SURFACE, mew=1.6,
+               label="raster, cross-linked"),
+    ], loc="center left", fontsize=10.0, labelspacing=0.5, borderpad=0.8)
+
     # The measured gap. Both endpoints are data; nothing here is extrapolated.
     xbar = np.sqrt(d12["dens"] * ra["dens"])
     ax.plot([xbar, xbar], [ra["floor"], d12["floor"]], color=INK, lw=1.8,
@@ -267,18 +315,18 @@ def _panel_tradespace(ax, d):
     for y in (ra["floor"], d12["floor"]):
         ax.plot([xbar * 0.985, xbar * 1.015], [y, y], color=INK, lw=1.8,
                 zorder=4)
-    ax.annotate(f"$\\times${d['crosslink_gain']:.0f}\nat the same\nmode density",
+    '''ax.annotate(f"$\\times${d['crosslink_gain']:.0f}\nat the same\nmode density",
                 (xbar * 0.97, np.sqrt(ra["floor"] * d12["floor"])), ha="right",
-                va="center", color=INK, fontsize=9.6, fontweight="semibold",
+                va="center", color=INK, fontsize=11, fontweight="semibold",
                 linespacing=1.45)
     ax.annotate(f"{d12['dens']:.1f} vs {ra['dens']:.1f} modes/100 deg$^2$ "
                 "\u2014 2% apart",
                 (xbar, ylo * 2.2), ha="center", va="center", color=MUTED,
-                fontsize=8.2)
+                fontsize=9.4)'''
 
     ax.axhline(1.0, color=INK, lw=1.6, zorder=3)
     ax.annotate("HI level", (xlo * 1.04, 1.0), textcoords="offset points",
-                xytext=(0, 6), color=INK, fontsize=8.8)
+                xytext=(0, 6), color=INK, fontsize=10.1)
 
     ax.set_xticks([12, 15, 20, 25, 30])
     ax.set_xticklabels(["12", "15", "20", "25", "30"])
@@ -286,8 +334,8 @@ def _panel_tradespace(ax, d):
     ax.set_xlabel("measured sky modes per 100 deg$^2$   "
                   "[$\\mathrm{tr}(WA)$ / patch area]")
     ax.set_ylabel(f"beam + prior floor / HI   ({NMODES} modes removed)")
-    ax.set_title("Two regimes, measured \u2014 350$-$400 MHz", color=INK2,
-                 fontsize=9.6, loc="left", pad=6)
+    '''ax.set_title("Two regimes, measured \u2014 350$-$400 MHz", color=INK2,
+                 fontsize=11, loc="left", pad=6)'''
 
 
 # --- right panel: what each lever does to the FLOOR -------------------------
@@ -343,7 +391,7 @@ def _panel_levers(ax, d):
                   f"$\\times${factor:.3f}"
             ax.annotate(txt, (factor, yi), textcoords="offset points",
                         xytext=(6, 0), ha="left", va="center", color=INK,
-                        fontsize=9.4, fontweight="semibold",
+                        fontsize=10.8, fontweight="semibold",
                         bbox=dict(facecolor=SURFACE, edgecolor="none", pad=1.0))
         elif kind in ("open", "ambiguous"):
             ax.add_patch(Rectangle((xlo, yi - 0.16), 1.0 - xlo, 0.32,
@@ -351,18 +399,18 @@ def _panel_levers(ax, d):
                                    lw=1.1, hatch="////", zorder=3))
             ax.annotate("inconclusive" if kind == "ambiguous" else "not measured",
                         (0.8, yi), va="center", ha="right", color=MUTED,
-                        fontsize=8.4, style="italic", zorder=5,
+                        fontsize=9.7, style="italic", zorder=5,
                         bbox=dict(facecolor=SURFACE, edgecolor="none", pad=1.5))
         else:
             ax.plot([1.0], [yi], marker="o", ms=9, color=MUTED, mec=SURFACE,
                     mew=1.6, zorder=5)
             ax.annotate("1.00$\\times$ exactly", (1.12, yi), va="center",
-                        color=MUTED, fontsize=8.6)
-        ax.annotate(note, (xlo * 1.15, yi - 0.30), color=MUTED, fontsize=7.3,
+                        color=MUTED, fontsize=9.9)
+        ax.annotate(note, (xlo * 1.15, yi - 0.30), color=MUTED, fontsize=8.4,
                     va="center", ha="left")
 
     ax.set_yticks(y)
-    ax.set_yticklabels([r[0] for r in rows], fontsize=8.8)
+    ax.set_yticklabels([r[0] for r in rows], fontsize=10.1)
     for tick, (_l, _f, kind, _n) in zip(ax.get_yticklabels(), rows):
         tick.set_color(MUTED if kind == "dead" else INK)
     ax.set_xticks([0.01, 0.05, 0.2, 1.0])
@@ -370,7 +418,7 @@ def _panel_levers(ax, d):
     ax.minorticks_off()
     ax.set_xlabel("factor change in the beam + prior floor   (left is better)")
     ax.set_title("Frequency is the biggest lever, and it is band-dependent",
-                 color=INK2, fontsize=9.6, loc="left", pad=6)
+                 color=INK2, fontsize=11, loc="left", pad=6)
 
 
 def main():
@@ -394,6 +442,7 @@ def main():
           f"{1 / d['crosslink_gain']:.1f}x on the floor "
           f"({d['crosslink_gain']:.1f}x lower)")
     print("wrote", fig_design(d))
+    print("wrote", fig_levers(d))
 
     lad = np.load(os.path.join(RESDIR, "hi_ladder_f350_ns64.npz"))
     lad_long = os.path.join(RESDIR, "hi_ladder_long_ns64.npz")
@@ -451,34 +500,40 @@ def fig_priorvar(pv, d=None, nmodes=NMODES, text=None):
 
     # --- left: residual against the prior scale ----------------------------
     P._tidy(axA)
-    for s, style in STRAT.items():
-        axA.plot(scales, pv[f"{s}_total_{nmodes}"], color=style["color"],
-                 marker="o", ms=7, mfc=SURFACE, mew=2.0, zorder=4)
-        axA.plot(scales, pv[f"{s}_floor_{nmodes}"], color=style["color"],
-                 ls=(0, (4, 2)), lw=1.6, alpha=0.75, zorder=3)
+    for s in STRAT:
+        mono = P.MONO_STRAT[s]
+        axA.plot(scales, pv[f"{s}_total_{nmodes}"], color=mono["color"],
+                 marker=mono["marker"], ms=7, mfc=SURFACE, mew=2.0, zorder=4)
+        axA.plot(scales, pv[f"{s}_floor_{nmodes}"], color=MUTED,
+                 marker=mono["marker"], ms=4.5, mfc=SURFACE, mew=1.4,
+                 ls=(0, (4, 2)), lw=1.6, zorder=3)
         axA.annotate(s, (scales[-1], pv[f"{s}_total_{nmodes}"][-1]),
                      textcoords="offset points", xytext=(9, 0), va="center",
-                     color=style["color"], fontsize=9.5, fontweight="semibold")
+                     color=mono["color"], fontsize=10.9, fontweight="semibold")
     axA.axhline(1.0, color=INK, lw=1.4, zorder=2)
     axA.annotate("HI level", (scales[0], 1.0), textcoords="offset points",
-                 xytext=(2, 6), color=INK, fontsize=8.8)
-    axA.axvline(1.0, color=MUTED, lw=1.0, ls=(0, (1, 2)), zorder=1)
-    axA.annotate("as published", (1.0, axA.get_ylim()[1]),
+                 xytext=(2, 6), color=INK, fontsize=10.1)
+    #axA.axvline(1.0, color=MUTED, lw=1.0, ls=(0, (1, 2)), zorder=1)
+    '''axA.annotate("as published", (1.0, axA.get_ylim()[1]),
                  textcoords="offset points", xytext=(4, -10), color=MUTED,
-                 fontsize=8.4, rotation=90, va="top")
+                 fontsize=9.7, rotation=90, va="top")'''
     axA.set_xscale("log"); axA.set_yscale("log")
     axA.set_xlim(scales.min() * 0.5, scales.max() * 3.0)
     axA.set_xlabel("prior variance / truth patch variance   "
                    "(right = looser prior)")
     axA.set_ylabel(f"post-clean residual / HI   ({nmodes} modes removed)")
     axA.legend(handles=[
-        Line2D([], [], color=MUTED, marker="o", ms=7, mfc=SURFACE, mew=2.0,
+        Line2D([], [], color=INK, marker="o", ms=7, mfc=SURFACE, mew=2.0,
                label="total"),
         Line2D([], [], color=MUTED, ls=(0, (4, 2)), lw=1.6,
-               label="beam + prior floor alone")],
-        loc="lower right", bbox_to_anchor=(1.0, 0.07), fontsize=8.8)
-    axA.set_title("What the prior's amplitude is worth", color=INK2,
-                  fontsize=9.6, loc="left", pad=6)
+               label="beam + prior floor alone"),
+        Line2D([], [], color=INK, ls="none", marker="o", ms=7, mfc=SURFACE,
+               mew=2.0, label="drift"),
+        Line2D([], [], color=INK, ls="none", marker="^", ms=7, mfc=SURFACE,
+               mew=2.0, label="raster")],
+        loc="lower right", bbox_to_anchor=(1.0, 0.07), fontsize=10.1)
+    #axA.set_title("What the prior's amplitude is worth", color=INK2,
+    #              fontsize=11, loc="left", pad=6)
 
     # --- right: the same sweep as a track across the trade space -----------
     P._tidy(axB)
@@ -497,46 +552,49 @@ def fig_priorvar(pv, d=None, nmodes=NMODES, text=None):
                  zorder=2)
         axB.annotate("two-point power law from the\ndesign figure "
                      f"(slope ${d['slope']:.1f}$)",
-                     (bx0 * 1.05, 2600), color=MUTED, fontsize=8.4, ha="left",
+                     (bx0 * 1.05, 2600), color=MUTED, fontsize=9.7, ha="left",
                      va="center", linespacing=1.45)
     lab_off = {"drift": (0, -30, "center", "top"),
                "raster": (12, -12, "left", "top")}
-    for s_, style in STRAT.items():
+    for s_, style in P.MONO_STRAT.items():        # two series -> black only
+        if f"{s_}_dens" not in pv:
+            continue
         x = np.asarray(pv[f"{s_}_dens"], float)
         y = np.asarray(pv[f"{s_}_total_{nmodes}"], float)
-        axB.plot(x, y, color=style["color"], lw=2.2, zorder=4)
-        axB.plot(x, y, color=style["color"], ls="none", marker="o", ms=6,
-                 mfc=SURFACE, mew=1.8, zorder=5)
+        axB.plot(x, y, color=style["color"], ls=style["ls"], lw=2.2, zorder=4)
+        axB.plot(x, y, color=style["color"], ls="none", marker=style["marker"],
+                 ms=6, mfc=SURFACE, mew=1.8, zorder=5)
         j = int(np.argmin(np.abs(scales - 1.0)))
-        axB.plot([x[j]], [y[j]], color=style["color"], marker="o", ms=13,
-                 mec=SURFACE, mew=2.0, zorder=6)
+        axB.plot([x[j]], [y[j]], color=style["color"], marker=style["marker"],
+                 ms=13, mec=SURFACE, mew=2.0, zorder=6)
         dx, dy, ha, va = lab_off[s_]
-        axB.annotate(f"{s_}\nas published", (x[j], y[j]),
+        '''axB.annotate(f"{s_}\nas published", (x[j], y[j]),
                      textcoords="offset points", xytext=(dx, dy), ha=ha, va=va,
-                     color=style["color"], fontsize=9.2,
-                     fontweight="semibold", linespacing=1.4)
+                     color=style["color"], fontsize=10.6,
+                     fontweight="semibold", linespacing=1.4)'''
         axB.annotate("tight", (x[0], y[0]), textcoords="offset points",
                      xytext=(-7, 0), ha="right", va="center", color=MUTED,
-                     fontsize=8.0)
+                     fontsize=9.2)
         axB.annotate("loose", (x[-1], y[-1]), textcoords="offset points",
                      xytext=(7, 0), ha="left", va="center", color=MUTED,
-                     fontsize=8.0)
+                     fontsize=9.2)
     axB.set_xticks([10, 15, 20, 30, 50, 70])
     axB.set_xticklabels(["10", "15", "20", "30", "50", "70"])
     axB.minorticks_off()
     axB.set_xlabel("measured sky modes per 100 deg$^2$   "
                    "[$\\mathrm{tr}(WA)$ / patch area]")
     axB.set_ylabel(f"post-clean residual / HI   ({nmodes} modes removed)")
-    axB.set_title("The tracks cross the line, they do not run along it",
-                  color=INK2, fontsize=9.6, loc="left", pad=6)
+    #axB.set_title("The tracks cross the line, they do not run along it",
+    #              color=INK2, fontsize=11, loc="left", pad=6)
 
-    P._title(fig, "Loosening the prior buys modes that are worth less than nothing",
+    '''P._title(fig, "Loosening the prior buys modes that are worth less than nothing",
              f"Prior variance swept over {scales.min():g}$-${scales.max():g}$\\times$ "
              "the truth patch variance, everything else fixed (the prior MEAN was "
              "already flat; this is its amplitude). Scale 1 reproduces the published "
              "335.0/347.3 and 22.7/24.0 exactly. PROTOTYPE.",
-             x=0.012, y_title=1.05, y_sub=0.982, override=text)
+             x=0.012, y_title=1.05, y_sub=0.982, override=text)'''
     fig.tight_layout(rect=(0, 0, 1, 0.91))
+    plt.show()
     return P._save(fig, "hi_priorvar")
 
 # ---------------------------------------------------------------------------
@@ -589,68 +647,70 @@ def fig_ladder(ld, ld_long=None, floors=None, text=None):
                              gridspec_kw=dict(wspace=0.30))
 
     ax = axes[0]; P._tidy(ax)
-    ax.plot(sp[iA], dens[iA], color=DRIFT, marker="o", ms=8, mfc=SURFACE,
+    ax.plot(sp[iA], dens[iA], color=INK, marker="o", ms=8, mfc=SURFACE,
             mew=2.0, zorder=4)
     j0 = int(np.where((n[iA] == ref_n) & (np.abs(sp[iA] - ref_sp) < 1e-9))[0][0])
-    ax.plot([sp[iA][j0]], [dens[iA][j0]], color=DRIFT, marker="o", ms=13,
+    ax.plot([sp[iA][j0]], [dens[iA][j0]], color=INK, marker="o", ms=13,
             mec=SURFACE, mew=2.0, zorder=5)
-    ax.annotate("published\n52/50/48", (sp[iA][j0], dens[iA][j0]),
+    '''ax.annotate("published\n52/50/48", (sp[iA][j0], dens[iA][j0]),
                 textcoords="offset points", xytext=(0, 16), ha="center",
-                color=DRIFT, fontsize=9.0, fontweight="semibold",
-                linespacing=1.4)
+                color=INK, fontsize=10.3, fontweight="semibold",
+                linespacing=1.4)'''
     ax.axvline(1.0, color=INK, lw=1.4, ls=(0, (4, 3)), zorder=2)
-    ax.annotate("one beam \u2014 strips stop overlapping", (1.0, dens[iA].min()),
+    '''ax.annotate("one beam \u2014 strips stop overlapping", (1.0, dens[iA].min()),
                 textcoords="offset points", xytext=(-6, 4), rotation=90,
-                ha="right", va="bottom", color=INK, fontsize=8.4)
+                ha="right", va="bottom", color=INK, fontsize=9.7)'''
     ax.set_xlabel("strip spacing  [beam FWHM]")
     ax.set_ylabel("measured sky modes per 100 deg$^2$")
-    ax.set_title(f"{ref_n} strips, varying spacing", color=INK2, fontsize=9.6,
+    ax.set_title(f"{ref_n} strips, varying spacing", color=INK2, fontsize=11,
                  loc="left", pad=6)
 
     ax = axes[1]; P._tidy(ax)
-    ax.plot(n[iB], dens[iB], color=DRIFT, marker="o", ms=7, mfc=SURFACE,
+    ax.plot(n[iB], dens[iB], color=INK, marker="o", ms=7, mfc=SURFACE,
             mew=2.0, zorder=4)
     j1 = int(np.where(n[iB] == 1)[0][0])
     ax.plot([1], [dens[iB][j1]], color=MUTED, marker="o", ms=11, mec=SURFACE,
             mew=1.8, zorder=5)
-    ax.annotate("one parked dish\n(no ladder)", (1, dens[iB][j1]),
+    '''ax.annotate("one parked dish\n(no ladder)", (1, dens[iB][j1]),
                 textcoords="offset points", xytext=(10, -2), ha="left",
-                va="top", color=MUTED, fontsize=8.6, linespacing=1.4)
+                va="top", color=MUTED, fontsize=9.9, linespacing=1.4)'''
     if floors:
         for nn, fl in floors.items():
             k = int(np.where(n[iB] == nn)[0][0])
-            ax.plot([nn], [dens[iB][k]], color=DRIFT, marker="o", ms=13,
+            ax.plot([nn], [dens[iB][k]], color=INK, marker="o", ms=13,
                     mec=SURFACE, mew=2.0, zorder=6)
             ax.annotate(f"{nn} dishes\nfloor {fl:.0f}$\\times$",
                         (nn, dens[iB][k]), textcoords="offset points",
-                        xytext=(0, 15), ha="center", color=DRIFT,
-                        fontsize=8.8, fontweight="semibold", linespacing=1.4)
-    ax.set_xlabel("number of strips  (= dishes, observing simultaneously)")
+                        xytext=(0, 15), ha="center", color=INK,
+                        fontsize=10.1, fontweight="semibold", linespacing=1.4)
+    ax.set_xlabel("N strips")
     ax.set_ylabel("measured sky modes per 100 deg$^2$")
     ax.set_title(f"spacing fixed at {ref_sp:g} beams", color=INK2,
-                 fontsize=9.6, loc="left", pad=6)
+                 fontsize=11, loc="left", pad=6)
 
     ax = axes[2]; P._tidy(ax)
-    ax.plot(n[iB], n_eff[iB] / n_eff[iB][j1], color=DRIFT, marker="o", ms=7,
-            mfc=SURFACE, mew=2.0, zorder=4, label="measured modes, tr($WA$)")
-    ax.plot(n[iB], area[iB] / area[iB][j1], color=THIRD, marker="s", ms=6,
-            mfc=SURFACE, mew=2.0, zorder=4, label="sky area")
+    # two series -> no hue; linestyle and marker carry it
+    ax.plot(n[iB], n_eff[iB] / n_eff[iB][j1], ms=7, mfc=SURFACE, mew=2.0,
+            zorder=4, label="measured modes, tr($WA$)", **P.MONO[0])
+    ax.plot(n[iB], area[iB] / area[iB][j1], ms=6, mfc=SURFACE, mew=2.0,
+            zorder=4, label="sky area", **P.MONO[1])
     ax.axhline(1.0, color=BASELINE, lw=1.0, ls=(0, (4, 3)), zorder=2)
-    ax.set_xlabel("number of strips")
+    ax.set_xlabel("N strips")
     ax.set_ylabel("relative to a single parked dish")
-    ax.legend(loc="upper left", fontsize=8.8)
-    ax.set_title("Constant marginal return: ~12 modes per 44 deg$^2$, every strip",
-                 color=INK2, fontsize=9.6, loc="left", pad=6)
+    ax.legend(loc="upper left", fontsize=10.1)
+    '''ax.set_title("Constant marginal return: ~12 modes per 44 deg$^2$, every strip",
+                 color=INK2, fontsize=11, loc="left", pad=6)'''
 
-    P._title(fig, "The drift cannot cross-link, so the Dec ladder is its only "
+    '''P._title(fig, "The drift cannot cross-link, so the Dec ladder is its only "
              "geometry lever",
              "Mode count only, one channel at 350.8 MHz, no TOD. N strips on N "
              "sidereal days is arithmetically the same as N dishes parked at N "
              "elevations for one hour. The ladder does not saturate \u2014 but a "
              "mode count is not a residual, and cross-linking beats it 9$\\times$ "
              "at matched density.",
-             x=0.012, y_title=1.05, y_sub=0.975, override=text)
+             x=0.012, y_title=1.05, y_sub=0.975, override=text)'''
     fig.tight_layout(rect=(0, 0, 1, 0.89))
+    plt.show()
     return P._save(fig, "hi_ladder")
 
 
@@ -714,17 +774,19 @@ def fig_ladder_geometry(ld=None, text=None):
                                    alpha=0.42, zorder=3))
             ax.plot([0, ra_span], [d, d], color=SURFACE, lw=0.8, zorder=4)
         ax.set_xlim(-1.0, ra_span + 1.0); ax.set_ylim(dlo, dhi)
-        ax.set_xlabel("RA drift  [deg]", fontsize=8.6)
+        ax.set_xlabel("RA drift  [deg]", fontsize=9.9)
         if col == 0:
             ax.set_ylabel("declination  [deg]")
         else:
             ax.set_yticklabels([])
         lab = f"{n} strips, {sp:g} beam" + ("" if sp == 1 else "s")
         if (n, sp) == (3, 0.5):
-            lab += "\n(published 52/50/48)"
+            #lab += "\n(published 52/50/48)"
+            pass
         elif (n, sp) == (8, 0.5):
-            lab += "\n(8 dishes)"
-        ax.set_title(lab, color=INK, fontsize=9.4, fontweight="semibold",
+            #lab += "\n(8 dishes)"
+            pass
+        ax.set_title(lab, color=INK, fontsize=10.8, fontweight="semibold",
                      loc="left", pad=6, linespacing=1.35)
 
         # --- bottom: the cross-scan cut ---------------------------------
@@ -736,7 +798,7 @@ def fig_ladder_geometry(ld=None, text=None):
             ax.plot(grid, g, color=DRIFT, lw=1.0, alpha=0.40, zorder=3)
         ax.plot(grid, tot, color=DRIFT, lw=2.4, zorder=5)
         ax.set_xlim(dlo, dhi); ax.set_ylim(0, ymax * 1.10)
-        ax.set_xlabel("declination  [deg]", fontsize=8.6)
+        ax.set_xlabel("declination  [deg]", fontsize=9.9)
         if col == 0:
             ax.set_ylabel("summed beam response")
         else:
@@ -746,30 +808,31 @@ def fig_ladder_geometry(ld=None, text=None):
         # centres is meaningless -- it reads as if tighter packing were worse.
         lo = np.r_[False, (tot[1:-1] < tot[:-2]) & (tot[1:-1] < tot[2:]), False]
         inner = lo & (grid > decs.min()) & (grid < decs.max())
-        if n > 1 and inner.any():
+        '''if n > 1 and inner.any():
             note = f"dips to {tot[inner].min() / tot.max():.2f} of peak"
         elif n > 1:
             note = "no dip — strips fully merged"
         else:
             note = "single strip"
         ax.annotate(note, (0.5, 0.94), xycoords="axes fraction", ha="center",
-                    color=MUTED, fontsize=8.0)
+                    color=MUTED, fontsize=9.2)'''
         if (n, round(sp, 2)) in meas:
             d_, a_ = meas[(n, round(sp, 2))]
             ax.annotate(f"{d_:.1f} modes/100 deg$^2$\n{a_:.0f} deg$^2$ measured",
-                        (0.5, 0.74), xycoords="axes fraction", ha="center",
-                        color=INK, fontsize=8.6, fontweight="semibold",
+                        (0.5, -0.5), xycoords="axes fraction", ha="center",
+                        color=INK, fontsize=9.9, fontweight="semibold",
                         linespacing=1.4)
 
-    P._title(fig, "The declination ladder: overlapping strips concentrate "
+    '''P._title(fig, "The declination ladder: overlapping strips concentrate "
              "information, separated strips just add sky",
              "Parked due north, $\\delta = 90\\degree + \\phi - \\mathrm{el}$, so "
              "elevation steps are declination steps one-for-one, and one hour of "
              "Earth rotation sweeps each strip through 15$\\degree$ of RA. Bands "
              "are one FWHM thick; the map-maker keeps everything above 5% of beam "
              "peak, so measured areas (annotated) exceed the rectangles.",
-             x=0.012, y_title=1.035, y_sub=0.985, override=text)
+             x=0.012, y_title=1.035, y_sub=0.985, override=text)'''
     fig.tight_layout(rect=(0, 0, 1, 0.90))
+    plt.show()
     return P._save(fig, "hi_ladder_geometry")
 
 
@@ -810,6 +873,52 @@ def load_bands(nmodes=NMODES, strategies=("drift", "raster")):
     return out
 
 
+def _freq_panel(ax, bands, x, key, ylab, title):
+    """One panel of the frequency figure.
+
+    Shared by the three-panel version and the ratio-only one so the
+    two cannot drift apart.
+    """
+    P._tidy(ax); ax.set_yscale("log")
+    if key is None:
+        y = [b["hi"] for b in bands]
+        ax.plot(x, y, color=INK, marker="o", ms=8, mfc=SURFACE, mew=2.0,
+                zorder=4)
+        ax.annotate(f"{y[0] / y[-1]:.1f}$\\times$ fainter\nacross this range",
+                    (x[0], y[-1]), textcoords="offset points",
+                    xytext=(8, 0), ha="left", va="center", color=INK,
+                    fontsize=10.1, linespacing=1.45)
+    else:
+        for s_, style in P.MONO_STRAT.items():   # two series -> black
+            if s_ not in bands[0]:
+                continue
+            y = [b[s_][key] for b in bands]
+            ax.plot(x, y, color=style["color"], ls=style["ls"],
+                    marker=style["marker"], ms=8,
+                    mfc=SURFACE, mew=2.0, zorder=4)
+            ax.annotate(s_, (x[-1], y[-1]), textcoords="offset points",
+                        xytext=(8, 0), va="center", color=style["color"],
+                        fontsize=10.8, fontweight="semibold")
+            fac = y[0] / y[-1]
+            ax.annotate(f"{fac:.0f}$\\times$" if fac >= 10
+                        else f"{fac:.1f}$\\times$",
+                        (x[-1], y[-1]), textcoords="offset points",
+                        xytext=(8, 13), va="center", color=MUTED,
+                        fontsize=9.7)
+        if key == "ratio":
+            ax.axhline(1.0, color=INK, lw=1.4, zorder=3)
+            ax.annotate("HI level", (x[0], 1.0),
+                        textcoords="offset points", xytext=(2, 6),
+                        color=INK, fontsize=9.7)
+    ax.set_xlabel("band centre  [MHz]")
+    ax.set_ylabel(ylab, fontsize=10.6)
+    ax.set_title(title, color=INK2, fontsize=11, loc="left", pad=6)
+    ax.set_xticks(x); ax.set_xticklabels([b["label"] for b in bands],
+                                         fontsize=9.7)
+    ax.set_xlim(min(x) - 60, max(x) + 110)
+    ax.margins(y=0.18)
+
+
 def fig_frequency(bands, text=None):
     """Three panels: the numerator, the denominator, and why their ratio lies.
 
@@ -834,53 +943,40 @@ def fig_frequency(bands, text=None):
          "their quotient — and it inverts"),
     ]
     for ax, (key, ylab, title) in zip(axes, panels):
-        P._tidy(ax); ax.set_yscale("log")
-        if key is None:
-            y = [b["hi"] for b in bands]
-            ax.plot(x, y, color=INK, marker="o", ms=8, mfc=SURFACE, mew=2.0,
-                    zorder=4)
-            ax.annotate(f"{y[0] / y[-1]:.1f}$\\times$ fainter\nacross this range",
-                        (x[0], y[-1]), textcoords="offset points",
-                        xytext=(8, 0), ha="left", va="center", color=INK,
-                        fontsize=8.8, linespacing=1.45)
-        else:
-            for s_, style in STRAT.items():
-                if s_ not in bands[0]:
-                    continue
-                y = [b[s_][key] for b in bands]
-                ax.plot(x, y, color=style["color"], marker="o", ms=8,
-                        mfc=SURFACE, mew=2.0, zorder=4)
-                ax.annotate(s_, (x[-1], y[-1]), textcoords="offset points",
-                            xytext=(8, 0), va="center", color=style["color"],
-                            fontsize=9.4, fontweight="semibold")
-                fac = y[0] / y[-1]
-                ax.annotate(f"{fac:.0f}$\\times$" if fac >= 10
-                            else f"{fac:.1f}$\\times$",
-                            (x[-1], y[-1]), textcoords="offset points",
-                            xytext=(8, 13), va="center", color=MUTED,
-                            fontsize=8.4)
-            if key == "ratio":
-                ax.axhline(1.0, color=INK, lw=1.4, zorder=3)
-                ax.annotate("HI level", (x[0], 1.0),
-                            textcoords="offset points", xytext=(2, 6),
-                            color=INK, fontsize=8.4)
-        ax.set_xlabel("band centre  [MHz]")
-        ax.set_ylabel(ylab, fontsize=9.2)
-        ax.set_title(title, color=INK2, fontsize=9.6, loc="left", pad=6)
-        ax.set_xticks(x); ax.set_xticklabels([b["label"] for b in bands],
-                                             fontsize=8.4)
-        ax.set_xlim(min(x) - 60, max(x) + 110)
-        ax.margins(y=0.18)
+        _freq_panel(ax, bands, x, key, ylab, title)
 
-    P._title(fig, "residual / HI is not comparable across bands",
+
+    '''P._title(fig, "residual / HI is not comparable across bands",
              "Left: the drift's foreground residual improves far faster with "
              "frequency than the raster's. Middle: the HI itself dims with "
              "redshift, which is cosmology, not instrument. Right: dividing one "
              "by the other inverts the ordering — so quote the two factors "
              "separately whenever bands are compared.",
-             x=0.012, y_title=1.06, y_sub=0.975, override=text)
+             x=0.012, y_title=1.06, y_sub=0.975, override=text)'''
     fig.tight_layout(rect=(0, 0, 1, 0.88))
+    plt.show()
     return P._save(fig, "hi_frequency_design")
+
+def fig_frequency_ratio(bands, text=None):
+    """The quotient panel alone -- the same data as fig_frequency's third panel.
+
+    Kept as a separate figure because the ratio is the thing most readers will
+    want to point at, and it is the thing most likely to be misread: it is an
+    instrument number over a cosmology number, and it inverts for that reason
+    rather than because the raster gets worse. Draws through ``_freq_panel``,
+    so it cannot disagree with the three-panel version.
+    """
+    if len(bands) < 2:
+        return None
+    x = [b["fc"] for b in bands]
+    fig, ax = plt.subplots(figsize=P._figsize("hi_frequency_ratio", (6.4, 5.0)))
+    _freq_panel(ax, bands, x, "ratio",
+                f"residual / HI   ({NMODES} modes removed)",
+                None)
+    fig.tight_layout()
+    plt.show()
+    return P._save(fig, "hi_frequency_ratio")
+
 
 
 # ---------------------------------------------------------------------------
@@ -906,11 +1002,13 @@ def fig_cleaning_depth(text=None):
              ("drift", "raster"), (0, (1, 2.4))),
             ("675$-$725", "hi_experiment_f700_f675_725_nc32_ns128.npz",
              ("drift", "raster"), (0, (4, 2)))]
-    colour = {"drift": DRIFT, "drift12": THIRD, "raster": RASTER}
+    # 3 strategies, so hue is kept -- but each carries its own marker, and
+    # linestyle is spent on the BAND, which is the second dimension here.
 
-    fig, (axA, axB) = plt.subplots(
-        1, 2, figsize=P._figsize("hi_cleaning_depth", (12.6, 5.0)),
-        gridspec_kw=dict(wspace=0.28))
+    # One panel, not two: the raw residual and the net-of-signal-loss version
+    # are the same shape, and the net one is the only one that decides whether
+    # the extra mode was worth removing. Dropped 2026-09-28.
+    fig, axB = plt.subplots(figsize=P._figsize("hi_cleaning_depth", (7.4, 5.2)))
     seen, strat_seen = [], []
     for band, fname, strategies, ls in runs:
         path = os.path.join(RESDIR, fname)
@@ -926,49 +1024,49 @@ def fig_cleaning_depth(text=None):
                 for k in nm]
             tf = [float(np.median(e[f"{s_}_cr_tf_{k}"])) for k in nm]
             net = [r / t for r, t in zip(ratio, tf)]
-            c = colour[s_]
-            axA.plot(nm, ratio, color=c, ls=ls, marker="o", ms=6, mfc=SURFACE,
-                     mew=1.8, zorder=4)
-            axB.plot(nm, net, color=c, ls=ls, marker="o", ms=6, mfc=SURFACE,
+            st = P.STRAT_ALL[s_]
+            c, mk = st["color"], st["marker"]
+            axB.plot(nm, net, color=c, ls=ls, marker=mk, ms=6, mfc=SURFACE,
                      mew=1.8, zorder=4)
             seen.append((band, ls))
             if s_ not in [t[0] for t in strat_seen]:
-                strat_seen.append((s_, c))
+                strat_seen.append((s_, c, mk))
     for ax, ylab, title in (
-            (axA, f"post-clean residual / HI",
-             "What deeper cleaning buys"),
             (axB, "residual / HI that SURVIVES the clean",
-             "What it costs — and whether it is worth it")):
+             "What deeper cleaning costs — and whether it is worth it"),):
         P._tidy(ax); ax.set_yscale("log")
         ax.axhline(1.0, color=INK, lw=1.5, zorder=3)
         ax.annotate("HI level", (12.0, 1.0), textcoords="offset points",
-                    xytext=(0, 6), ha="right", color=INK, fontsize=8.6)
+                    xytext=(0, 6), ha="right", color=INK, fontsize=9.9)
         ax.set_xlabel("PCA modes removed")
-        ax.set_ylabel(ylab, fontsize=9.4)
-        ax.set_title(title, color=INK2, fontsize=9.6, loc="left", pad=6)
+        ax.set_ylabel(ylab, fontsize=10.8)
+        #ax.set_title(title, color=INK2, fontsize=11, loc="left", pad=6)
         ax.set_xticks([1, 2, 3, 4, 6, 8, 10])
         ax.set_xlim(0.5, 12.2)
         ax.set_ylim(bottom=0.7)
     bands = list(dict.fromkeys(seen))
-    axA.legend(handles=[Line2D([], [], color=c, lw=2.4, label=s_)
-                        for s_, c in strat_seen],
-               loc="upper right", bbox_to_anchor=(1.0, 1.0),
-               fontsize=8.8, title="strategy", title_fontsize=8.4,
-               labelspacing=0.35)
+    # both dimensions now have to be legended in the one panel
+    leg = axB.legend(handles=[Line2D([], [], color=c, lw=2.4, marker=mk, ms=6,
+                                     mfc=SURFACE, mew=1.8, label=s_)
+                              for s_, c, mk in strat_seen],
+                     loc="upper right", fontsize=10.1, title="strategy",
+                     title_fontsize=9.7, labelspacing=0.35)
+    axB.add_artist(leg)
     axB.legend(handles=[Line2D([], [], color=MUTED, ls=ls, lw=2.0,
                                label=f"{b} MHz") for b, ls in bands],
                loc="lower left", bbox_to_anchor=(0.02, 0.04),
-               fontsize=8.8, title="band", title_fontsize=8.4,
+               fontsize=10.1, title="band", title_fontsize=9.7,
                labelspacing=0.35)
 
-    P._title(fig, "Cleaning harder always helps — which is the point",
+    '''P._title(fig, "Cleaning harder always helps — which is the point",
              "The residual keeps falling with mode count and so does the HI, "
              "but the residual falls faster, so the net never turns over within "
              "the range tested. There is no optimal depth to find: the limit is "
              "the beam + prior floor, not the cleaning. Common resolution, "
              "interior pixels.",
-             x=0.012, y_title=1.05, y_sub=0.975, override=text)
+             x=0.012, y_title=1.05, y_sub=0.975, override=text)'''
     fig.tight_layout(rect=(0, 0, 1, 0.90))
+    plt.show()
     return P._save(fig, "hi_cleaning_depth")
 
 
@@ -1013,19 +1111,19 @@ def fig_chromatic(rank, text=None):
                     zorder=4, label=lab if s_ == "drift" else None)
     ax.axhline(0.99, color=BASELINE, lw=1.0, ls=(0, (4, 3)), zorder=2)
     ax.annotate("99% of variance", (len(f), 0.99), textcoords="offset points",
-                xytext=(-2, -12), ha="right", color=MUTED, fontsize=8.4)
+                xytext=(-2, -12), ha="right", color=MUTED, fontsize=9.7)
     ax.set_xlim(1, 30); ax.set_ylim(0.3, 1.02)
     ax.set_xlabel("eigenmodes retained")
     ax.set_ylabel("cumulative fraction of variance")
-    leg = ax.legend(loc="lower right", fontsize=8.8)
+    leg = ax.legend(loc="lower right", fontsize=10.1)
     ax.add_artist(leg)
     ax.legend(handles=[Line2D([], [], color=MUTED, ls="-", lw=2.0,
                               label="drift"),
                        Line2D([], [], color=MUTED, ls=(0, (4, 2)), lw=2.0,
                               label="raster")],
-              loc="center right", fontsize=8.4, labelspacing=0.3)
+              loc="center right", fontsize=9.7, labelspacing=0.3)
     ax.set_title("The HI is the only thing that is not low-rank",
-                 color=INK2, fontsize=9.6, loc="left", pad=6)
+                 color=INK2, fontsize=11, loc="left", pad=6)
 
     # --- middle: the spectral shapes ---------------------------------------
     ax = axes[1]; P._tidy(ax)
@@ -1048,26 +1146,29 @@ def fig_chromatic(rank, text=None):
                        (2.4, "floor\nmodes 1$-$3", DRIFT),
                        (2.4 * 4, "HI\nmode 1", RASTER)):
         ax.annotate(lab, (f[-1] + 1.5, y0), ha="left", va="center", color=c,
-                    fontsize=8.4, fontweight="semibold", linespacing=1.35)
+                    fontsize=9.7, fontweight="semibold", linespacing=1.35)
     ax.set_title("Smooth, then structured, then noise-like",
-                 color=INK2, fontsize=9.6, loc="left", pad=6)
+                 color=INK2, fontsize=11, loc="left", pad=6)
 
     # --- right: the floor and the HI are not orthogonal ---------------------
     ax = axes[2]; P._tidy(ax)
-    for s_, style in STRAT.items():
+    for s_, style in P.MONO_STRAT.items():           # two series -> black
+        if f"{s_}_overlap" not in rank:
+            continue
         c = np.asarray(rank[f"{s_}_overlap"], float)
-        ax.plot(np.arange(1, len(c) + 1), c, color=style["color"], marker="o",
+        ax.plot(np.arange(1, len(c) + 1), c, color=style["color"],
+                ls=style["ls"], marker=style["marker"],
                 ms=6, mfc=SURFACE, mew=1.8, zorder=4, label=s_)
     ax.axhline(0.0, color=INK, lw=1.4, zorder=3)
     ax.annotate("0 would mean the floor could be removed\nwithout touching the HI",
-                (1, 0.06), color=MUTED, fontsize=8.4, ha="left", va="bottom",
+                (1, 0.06), color=MUTED, fontsize=9.7, ha="left", va="bottom",
                 linespacing=1.45)
     ax.set_ylim(-0.05, 1.0)
     ax.set_xlabel("principal angle index")
     ax.set_ylabel("cos(principal angle), floor vs HI")
-    ax.legend(loc="upper left", fontsize=8.8)
+    ax.legend(loc="upper left", fontsize=10.1)
     ax.set_title("They overlap, so cleaning one costs the other",
-                 color=INK2, fontsize=9.6, loc="left", pad=6)
+                 color=INK2, fontsize=11, loc="left", pad=6)
 
     P._title(fig, "The floor is low-rank but not spectrally smooth — which "
              "is why PCA cannot remove it",
@@ -1078,6 +1179,7 @@ def fig_chromatic(rank, text=None):
              "cos $=0.42-0.78$. 350$-$400 MHz.",
              x=0.012, y_title=1.05, y_sub=0.975, override=text)
     fig.tight_layout(rect=(0, 0, 1, 0.89))
+    plt.show()
     return P._save(fig, "hi_chromatic")
 
 
@@ -1134,8 +1236,8 @@ def fig_realisations(vals, text=None):
     for i, (s_, v) in enumerate((("drift", dr), ("raster", ra))):
         c = STRAT[s_]["color"]
         x = i + 1 + rng.uniform(-0.09, 0.09, len(v))
-        axA.plot(x, v, ls="none", marker="o", ms=7, mfc=SURFACE, mec=c,
-                 mew=1.8, zorder=4)
+        axA.plot(x, v, ls="none", marker=STRAT[s_]["marker"], ms=7,
+                 mfc=SURFACE, mec=c, mew=1.8, zorder=4)
         m, sd = v.mean(), v.std(ddof=1)
         axA.plot([i + 1 - 0.28, i + 1 + 0.28], [m, m], color=c, lw=2.6,
                  zorder=5)
@@ -1144,15 +1246,15 @@ def fig_realisations(vals, text=None):
                                 zorder=2))
         axA.annotate(f"{m:.0f} $\\pm$ {sd:.0f}\n({100 * sd / m:.1f}%)",
                      (i + 1 + 0.33, m), va="center", ha="left", color=c,
-                     fontsize=9.2, fontweight="semibold", linespacing=1.4)
+                     fontsize=10.6, fontweight="semibold", linespacing=1.4)
         axA.plot([i + 1], [v[0]], marker="*", ms=14, color=INK, zorder=6)
     axA.annotate("$\\star$ = the published run", (0.03, 0.05),
-                 xycoords="axes fraction", color=INK, fontsize=8.6)
+                 xycoords="axes fraction", color=INK, fontsize=9.9)
     axA.set_xlim(0.55, 2.75); axA.set_xticks([1, 2])
     axA.set_xticklabels(["drift", "raster"])
     axA.set_ylabel(f"post-clean residual / HI   ({NMODES} modes removed)")
     axA.set_title(f"{len(dr)} HI realisations, same pixels, same noise seeds",
-                  color=INK2, fontsize=9.6, loc="left", pad=6)
+                  color=INK2, fontsize=11, loc="left", pad=6)
 
     P._tidy(axB)
     r = dr / ra
@@ -1164,14 +1266,14 @@ def fig_realisations(vals, text=None):
     axB.add_patch(Rectangle((0.72, m - sd), 0.56, 2 * sd, facecolor=THIRD,
                             alpha=0.13, edgecolor="none", zorder=2))
     axB.annotate(f"{m:.1f} $\\pm$ {sd:.1f}\n({100 * sd / m:.1f}%)",
-                 (1.35, m), va="center", ha="left", color=THIRD, fontsize=9.6,
+                 (1.35, m), va="center", ha="left", color=THIRD, fontsize=11,
                  fontweight="semibold", linespacing=1.4)
     axB.plot([1], [r[0]], marker="*", ms=14, color=INK, zorder=6)
     axB.set_xlim(0.5, 2.1); axB.set_xticks([1])
     axB.set_xticklabels(["drift / raster"])
     axB.set_ylabel("ratio between strategies")
     axB.set_title("The paired ratio is tighter than either number",
-                  color=INK2, fontsize=9.6, loc="left", pad=6)
+                  color=INK2, fontsize=11, loc="left", pad=6)
 
     P._title(fig, "A single-realisation residual carries a 9$-$13% error bar",
              "Only the true HI seed varies; noise seeds and pixels are fixed, so "
@@ -1180,6 +1282,7 @@ def fig_realisations(vals, text=None):
              "ladder test came out inconclusive. Quote ratios, not absolutes.",
              x=0.012, y_title=1.05, y_sub=0.975, override=text)
     fig.tight_layout(rect=(0, 0, 1, 0.89))
+    plt.show()
     return P._save(fig, "hi_realisations")
 
 

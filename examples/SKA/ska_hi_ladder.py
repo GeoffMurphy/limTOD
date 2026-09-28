@@ -150,6 +150,7 @@ def mode_count(mm):
 
 
 def main():
+    global FREQ_MHZ, REF_SPACING, REF_COUNT
     ap = argparse.ArgumentParser()
     ap.add_argument("--control-only", action="store_true",
                     help="just re-count the cached published operator")
@@ -160,8 +161,27 @@ def main():
                     help="spacings (in beams) to sweep at the reference count")
     ap.add_argument("--out", default=None,
                     help="output npz basename; defaults to hi_ladder_f350")
+    ap.add_argument("--freq", type=float, default=FREQ_MHZ,
+                    help="channel frequency [MHz]. Default is channel 0 of the "
+                         "350-400 band. Spacings below are quoted in beams AT "
+                         "THIS frequency, so a sweep at 675.78 explores 700 MHz "
+                         "beams -- convert with s350 = s_here * f_here / 350.78 "
+                         "before handing a configuration to "
+                         "ska_hi_experiment.ladder(), which is fixed to 350 MHz "
+                         "beams by design.")
+    ap.add_argument("--ref-spacing", type=float, default=None,
+                    help="spacing the COUNT sweep runs at; defaults to the sole "
+                         "--spacings value when one is given, else 0.5")
+    ap.add_argument("--ref-count", type=int, default=None,
+                    help="count the SPACING sweep runs at; default 3")
     args = ap.parse_args()
 
+    FREQ_MHZ = args.freq
+    # the two sweeps cross at (REF_COUNT, REF_SPACING); at a different band the
+    # crossing point has to move too, or --spacings never reaches the counts
+    REF_SPACING = args.ref_spacing if args.ref_spacing is not None \
+        else (args.spacings[0] if len(args.spacings) == 1 else REF_SPACING)
+    REF_COUNT = args.ref_count if args.ref_count is not None else REF_COUNT
     fwhm = ska_beam_fwhm_deg(FREQ_MHZ)
     print(f"{FREQ_MHZ:.2f} MHz, FWHM {fwhm:.3f} deg, nside {X.NSIDE}, "
           f"ladder centred on {EL_CENTRE:.0f} deg", flush=True)
@@ -171,10 +191,11 @@ def main():
                          f"op_drift_f{FREQ_MHZ:07.3f}_ns{X.NSIDE}.pkl")
     with open(cache, "rb") as f:
         r = mode_count(pickle.load(f))
-    print(f"CONTROL published 52/50/48 (cached op): tr(WA) {r['n_eff']:.2f}, "
+    ref = ("   [hi_modes.py: 38.78, 265.2, 14.62, 17]"
+           if abs(FREQ_MHZ - 350.78125) < 1e-6 else "")
+    print(f"CONTROL published drift (cached op): tr(WA) {r['n_eff']:.2f}, "
           f"{r['area']:.1f} deg^2, {100 * r['n_eff'] / r['area']:.2f}/100deg^2, "
-          f"n>1% {r['n_1pct']}   [hi_modes.py: 38.78, 265.2, 14.62, 17]",
-          flush=True)
+          f"n>1% {r['n_1pct']}{ref}", flush=True)
     if args.control_only:
         return
 

@@ -49,6 +49,13 @@ settled before any more runs are queued.
 more than a null result. (B) is the natural follow-up and inherits everything
 deferred below.
 
+> **DECIDED 2026-09-24: (A).** Geoff: aim to do as much for (A) as possible so
+> the draft is substantial, then make final-looking plots and write from them,
+> with everything subject to update. **Two items of (B) are expected by
+> collaborators and are the named follow-up: spillover, and the measured
+> beam.** They are not in the November draft. The cut list below therefore
+> stands as written, minus item 3 (see its row).
+
 ## Needed for the draft
 
 | # | item | why it is in | effort |

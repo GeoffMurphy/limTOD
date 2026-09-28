@@ -81,6 +81,14 @@ $^{1}$TODO affiliation
 %     band, yet INVERTS the ordering: the drift's post-clean foreground
 %     residual falls 105x across Band 1 against the raster's 2.5x, crossing
 %     over near 600 MHz.
+% (vi) THE DESIGN STATEMENT, and the one to lead the abstract with after the
+%      null result: because the floor is a BIAS in an auto-spectrum but only
+%      a variance against an external tracer, the two cases differ by a
+%      SQUARE. At this floor sigma_P/P = 1 needs 3.9e6 deg^2 in auto -- a
+%      hundred skies -- but 2940 deg^2 in cross-correlation, which is a survey
+%      that exists. The drift needs 4000x more sky than the raster for the
+%      same cross-correlation. That is "raster is better" in units a designer
+%      can act on, rather than a ratio of residuals.
 \end{abstract}
 
 % =====================================================================
@@ -407,8 +415,43 @@ kernel
 exact for the Gaussian beam used here. This halves the raster's residual and
 leaves the drift unchanged.
 
+\begin{figure*}
+\centering
+\includegraphics[width=\textwidth]{hi_patch_maps.png}
+\caption{The field and the pixel sets every number in this paper is quoted on.
+\emph{Left}: the GSM2008 foreground over the union of the two footprints.
+\emph{Right}: what each strategy solves. At the band's lowest channel the
+drift's 316 pixels are wholly contained in the raster's 684. The analysis does
+not use that set: because the beam narrows \SI{12.5}{\percent} across the band,
+each channel selects a slightly different patch, and per-channel pixel
+selection is itself a chromatic effect that would confound the test. The
+\emph{common} set is therefore the intersection over all 32 channels of both
+strategies (\num{277}\,px), and the \emph{interior} set drops everything within
+\ang{3} of its edge (\num{119}\,px), removing an edge inflation of the
+residual.}
+\label{fig:patchmaps}
+\end{figure*}
+
 % ---------------------------------------------------------------------
 \subsection{Results}
+
+\begin{figure*}
+\centering
+\includegraphics[width=\textwidth]{hi_maps.png}
+\caption{The HI in the map domain. Channel 16 (\SI{375.8}{\mega\hertz}), with
+the frequency mean removed. The true HI and each strategy's map-made response
+share one colour scale and are recognisably the same field: the map-maker
+recovers the injected signal, and by eye the drift and the raster both do so.
+The fourth panel is the cleaned data at four modes removed, and it needs a
+colour scale \emph{82 times wider} --- what survives the clean is residual, not
+signal. This is the whole result in one figure, and it is the reason the rest
+of the paper works in the power spectrum rather than the map.
+% TODO: placeholder. Collaborators want maps; settle whether this stays as
+% true/drift/raster/cleaned, or becomes a drift-vs-raster recovery comparison
+% with the residual maps beside them.
+}
+\label{fig:himaps}
+\end{figure*}
 
 \begin{figure*}
 \centering
@@ -416,7 +459,9 @@ leaves the drift unchanged.
 \caption{Fraction of map-made HI surviving the clean, $T(\kpar)$, per number of
 modes removed. Band is $\pm1\sigma$ over 20 independent mocks. Loss concentrates
 at low $\kpar$, where the modes are smoothest along the line of sight and least
-distinguishable from foreground.}
+distinguishable from foreground. Four of the seven mode counts measured are
+shown; the omitted panels are monotonic between them. The legend sits in the
+first panel.}
 \label{fig:tf}
 \end{figure*}
 
@@ -434,12 +479,14 @@ not a matter of sensitivity.}
 \centering
 \includegraphics[width=\textwidth]{hi_cleaning_depth.png}
 \caption{The first question asked of any floor-limited result: clean deeper?
-\emph{Left}: post-clean residual against PCA depth. \emph{Right}: the same
-residual measured against the HI that \emph{survives} the clean, which is the
-quantity that decides whether the extra mode was worth removing. Both fall and
-the residual falls faster, so the net never turns over within the range tested,
-in any of the three bands. There is no optimal cleaning depth to find: the
-limit is the beam + prior floor, not the cleaning.}
+The residual is measured against the HI that \emph{survives} the clean, which
+is the quantity that decides whether the extra mode was worth removing --- both
+it and the raw residual fall with depth, but the raw one falls faster, so this
+net version is the conservative statement. It never turns over within the range
+tested, in any of the three bands. There is no optimal cleaning depth to find:
+the limit is the beam + prior floor, not the cleaning. The twelve-strip drift was
+only run at \SIrange{350}{400}{\mega\hertz}, so it appears in one band alone;
+the conclusion is carried by the two strategies present in all three.}
 \label{fig:cleandepth}
 \end{figure*}
 
@@ -475,7 +522,9 @@ Eq.~\eqref{eq:commonres} then halves the raster's residual while leaving the
 drift unchanged. The last row is the drift-to-raster ratio and \emph{not} a
 cross-linking gain: these two strategies also differ in measured mode density
 (\num{14.6} against \num{22.3} per 100\,deg$^2$), so the ratio
-confounds the two. Controlling for density gives $9.3\times$.}
+confounds the two. Two independent controls both give $\sim9.4\times$:
+matching mode density by lengthening the drift's ladder gives $9.3\times$, and
+matching depth by narrowing the raster's azimuth throw gives $9.4\times$.}
 \label{tab:residual}
 \end{table*}
 
@@ -536,37 +585,96 @@ is why cleaning deeper cannot win.}
 
 % TODO: the synthesis. This section is the reason the paper is more than a
 % null result -- it says which knobs a survey designer can turn and what each
-% is worth, including the ones that are worth nothing.
+% is worth, including the ones that are worth nothing. Suggested spine, all
+% measured, in this order:
+%
+% 1. Mode count is necessary but NOT sufficient (Fig. design). Three separate
+%    controls now say so and each removes a candidate explanation:
+%      - matched mode DENSITY  (drift12 vs raster)        -> 9.3x remains
+%      - matched DEPTH         (drift vs narrowed raster) -> 9.4x remains
+%      - matched ANGULAR SCALE (Fig. kmodes, left)        -> 1.4-1.8x only
+%    What is left is the STRUCTURE of the null space: every drift track has
+%    position angle 90 deg, so its unmeasured modes share an angular structure
+%    that correlates across frequency -- which is why the residual is
+%    spectrally non-smooth and PCA cannot reach it (Fig. chromatic).
+% 2. The dead levers (Fig. levers). Integration time, system temperature and
+%    co-pointed dish count are 1.00x exactly. Publishing which knobs do not
+%    work is rarer and more useful than another sensitivity curve.
+% 3. What the modes are ENOUGH for (Fig. kmodes, right). The auto/cross gap is
+%    a square because the floor is a bias in one and a variance in the other.
+%    Quote the assumptions: r = 1, Gaussian, and the patch-total N_eff used as
+%    a single k bin, which is optimistic.
+% 4. The band qualifier: all of this is 350-400 MHz. Fig. freqdesign now shows
+%    the QUOTIENT only, so the prose has to carry the decomposition it used to
+%    show, and must do so BEFORE the figure is read:
+%      - post-clean foreground residual, an instrument quantity, improves
+%        105x for the drift and 2.5x for the raster across Band 1;
+%      - the HI itself dims 4.5x over the same range -- cosmology;
+%      - hence residual/HI inverts near 600 MHz and is non-monotonic for the
+%        raster (27 -> 77 -> 38) even though BOTH factors are monotonic.
+%    Say this, then show the figure as the cautionary object it is. Do not let
+%    a reader take the inversion for an instrumental trend.
 
 \begin{figure*}
 \centering
-\includegraphics[width=\textwidth]{hi_design.png}
-\caption{The design trade space at \SIrange{350}{400}{\mega\hertz}.
-\emph{Left}: the beam + prior floor against measured sky modes per unit sky.
-Adding parked dishes moves along a shallow power law (slope $-1.28$ from three
-to twelve dishes); crossing the tracks is a step change of $9\times$ at the
-\emph{same} mode density. Mode count is therefore not a sufficient statistic:
-cross-linking changes the structure of the null space rather than its size,
-because every drift track shares position angle \ang{90}. \emph{Right}: each
-lever as a factor on the floor. Integration time, system temperature and
-co-pointed dish count are $1.00\times$ exactly --- the residual is
-floor-dominated, so none of them can move it.}
+\includegraphics[width=0.86\textwidth]{hi_design.png}
+\caption{The design trade space at \SIrange{350}{400}{\mega\hertz}: the beam +
+prior floor against measured sky modes per unit sky. Adding parked dishes moves
+along a shallow power law (slope $-1.28$ from three to twelve dishes); crossing
+the tracks is a step change of $9\times$ at the \emph{same} mode density. Mode
+count is therefore not a sufficient statistic --- cross-linking changes the
+structure of the null space rather than its size, because every drift track
+shares position angle \ang{90}.}
 \label{fig:design}
 \end{figure*}
 
 \begin{figure*}
 \centering
-\includegraphics[width=\textwidth]{hi_frequency_design.png}
-\caption{Why residual/HI must not be read as a trend across bands.
-\emph{Left}: the post-clean foreground residual, an instrument quantity, which
-improves $105\times$ for the drift and $2.5\times$ for the raster across Band 1
---- the drift overtakes the raster near \SI{600}{\mega\hertz}. \emph{Middle}:
-the HI amplitude, which dims $4.5\times$ over the same range; that is cosmology,
-not instrument. \emph{Right}: their quotient, which inverts the ordering and is
-non-monotonic for the raster although both of its factors are monotonic. Quote
-the two separately whenever bands are compared.}
-\label{fig:freqdesign}
+\includegraphics[width=0.92\textwidth]{hi_levers.png}
+\caption{Every lever, as a factor on the beam + prior floor; left is better and
+the vertical line is no change. The three at the bottom are the useful half of
+the chart: integration time, system temperature and co-pointed dish count are
+$1.00\times$ \emph{exactly}, because the residual is \SIrange{96}{99}{\percent}
+floor and none of the three adds a row to $A$. Ladder spacing is drawn as
+inconclusive rather than as a small effect, because its sign flips with the
+metric (Sec.~\ref{sec:design}).}
+\label{fig:levers}
 \end{figure*}
+
+\begin{figure*}
+\centering
+\includegraphics[width=\textwidth]{hi_kmodes.png}
+\caption{From modes to science. \emph{Left}: $\mathrm{tr}(WA)$ of
+Eq.~\eqref{eq:neff} decomposed by angular scale --- each eigenmode is given a
+normalised angular power spectrum, so the sum over $k$ reproduces the counts of
+Table~\ref{tab:modes} exactly. The raster's advantage is close to
+scale-independent ($1.44\times$ for $|k| < 30$, $1.81\times$ near the beam), so
+angular scale is a third axis on which mode count fails to explain a
+$9.3\times$ difference in floor. Note also that the drift turns over at
+$|k| \simeq 65$, about $1.4$ beams, and never reaches beam-scale information:
+a single strip cannot sample the cross-scan direction. \emph{Right}: the sky
+area at which $\sigma_P/P = 1$ for each strategy. In an auto-spectrum the beam
++ prior floor is a \emph{bias}, so area cannot average it away; against an
+external tracer it is uncorrelated foreground and costs variance only, and the
+requirement falls by a square. Only the cross-correlated raster lands on a
+survey that could be built.}
+\label{fig:kmodes}
+\end{figure*}
+
+\begin{figure}
+\centering
+\includegraphics[width=\columnwidth]{hi_frequency_ratio.png}
+\caption{residual/HI across Band 1, and why this figure must not be read as a
+trend. The ordering inverts --- the drift overtakes the raster near
+\SI{600}{\mega\hertz} --- and the raster's curve is non-monotonic. Neither is an
+instrumental effect. The quantity plotted is a quotient of an instrument number
+by a cosmology number, and \emph{both of its factors are monotonic}: the
+post-clean foreground residual improves $105\times$ for the drift and
+$2.5\times$ for the raster across the band, while the HI itself dims
+$4.5\times$. The non-monotonic shape is the denominator. Whenever bands are
+compared, quote the two factors separately rather than this ratio.}
+\label{fig:freqdesign}
+\end{figure}
 
 % =====================================================================
 \section{Discussion}
@@ -588,10 +696,18 @@ the two separately whenever bands are compared.}
 %   driving it to zero improves the residual by only 4% and 6% respectively.
 % - What does help: mode count, i.e. geometry. And modelling the floor rather
 %   than filtering it -- Eq.~\eqref{eq:floor} is known exactly in simulation.
-% - Relation to MeerKLASS-type analyses: their strongest results are
-%   cross-correlations, where a residual uncorrelated with the tracer inflates
-%   the variance rather than biasing the answer; and survey volume averages a
-%   residual down in a way a 277-pixel patch cannot.
+% - Relation to MeerKLASS-type analyses, now quantified rather than asserted:
+%   their strongest results are cross-correlations, and that is not a
+%   presentational choice but the only regime in which this floor is
+%   survivable. A residual uncorrelated with the tracer inflates the variance
+%   instead of biasing the answer, so the requirement falls from
+%   (P_fl/P_HI)^2 to (P_fl/P_HI) -- a square. At the raster's floor that is
+%   2940 deg^2 for sigma/P = 1 against 3.9e6 deg^2 in auto. A parked drift
+%   needs 1.1e6 deg^2 even in cross-correlation, i.e. more than the sky.
+% - The corollary for anyone planning an auto-spectrum measurement: no amount
+%   of sky helps, because a bias does not average down. The route is to MODEL
+%   the floor rather than filter it -- (I - WA) is known exactly in simulation
+%   -- which is the next paper, not this one.
 
 % =====================================================================
 \section{Conclusions}
