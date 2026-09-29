@@ -1016,54 +1016,62 @@ resolving private helpers transitively (`fig_design` needs `_levers`,
 script → notebook -- so tuning done in the notebook must be pasted back into
 the `.py` first.
 
+**Notebook outputs ARE committed, deliberately** (Geoff, 2026-09-28). The
+file is ~1.5 MB, of which ~93% is base64 PNGs from cell runs, and each commit
+stores a fresh copy that git cannot delta-compress. Judged acceptable: a few MB
+total. Do not strip outputs or add a clear-output filter without asking.
+
 **Two sources of truth is the cost.** Both the notebook and the scripts write
 to `figures/`, and whichever ran last owns the PNG. There is no guard against
 this; the convention is that the notebook is the live version during tuning
 and the scripts are updated when a change settles.
 
-### Matched density at 675-725 MHz: is it even reachable? (2026-09-28)
+### Matched density at 675-725 MHz: YES, and the prediction was wrong (2026-09-29)
 
-**Cancelled before it ran: jobs 13889456 / 13889467** (`ladder700`, drift +
-drift12 + raster at 675-725). `drift12` is the wrong configuration for this
-question. `ladder()` fixes elevations in beams *at the band bottom* by design,
-so drift12's 1.99 deg step is 0.5 beams at 350 MHz but **~1.0 beam at 700 MHz**
--- the disjoint regime, where the Tier 1 sweep says strips buy area rather than
-density. It would have measured "the same survey in a different band", not
-matched density.
+Tier 1 sweep, job **13889513**, 8 h 04 min, nside 128, spacing 0.25 beams at
+675.78 MHz (0.517 deg). Results in `results/hi_ladder_f700_ns128.npz`.
 
-**Running instead: Tier 1 ladder sweep at 700 MHz, job 13889513.**
-`ska_hi_ladder.py --freq 675.78125 --counts 3 8 12 20 --spacings 0.25
---out hi_ladder_f700`, nside 128, operator only, no TOD.
+| N strips | tr(WA) | area deg^2 | modes/100 deg^2 | vs raster (76.55) |
+|---|---|---|---|---|
+| control, published drift | 63.70 | 152.1 | 41.87 | below |
+| 3 | 56.38 | 95.5 | 59.05 | below |
+| **8** | 126.42 | 153.0 | **82.65** | **ABOVE** |
+| 12 | 179.06 | 188.4 | 95.03 | above |
+| 20 | 290.55 | 269.4 | 107.84 | above |
 
-**The question it settles.** At 350 MHz a parked drift *can* reach the raster:
-drift12 gets 21.81 against 22.31, and the matched-density comparison then
-leaves cross-linking worth 9.3x. At 700 MHz the raster is at **76.55** per
-100 deg^2 and the published drift at **41.87** -- a factor 1.83 to close. But
-the 350 MHz count sweep saturates near 24 per 100 deg^2, only **1.63x** over
-three strips, because area grows alongside modes. If the same saturation holds
-at 700 MHz the drift tops out near 68 and **cannot** reach the raster --
-in which case "matched density" is not a test that exists at this band, and
-that is itself the answer to whether the 9.3x gap closes.
+**Matched density IS reachable, and comfortably.** Eight strips already exceed
+the raster, and the density does not saturate -- it climbs to 107.84 at N = 20.
+The crossing is at **N ~ 7** (linear between the two bracketing points, so
+worth pinning rather than trusting).
 
-**Unit trap, now documented in `--freq`'s help.** `ska_hi_ladder.py` quotes
-spacings in beams **at `--freq`**, while `ska_hi_experiment.ladder()` is fixed
-to 350 MHz beams. To hand a swept configuration to the experiment, convert:
+**Why the prediction failed, because the reasoning is worth not repeating.**
+This file predicted the drift would top out near 68 and never reach 76.55. That
+extrapolated the 350 MHz *density* curve, which saturates near 24 -- but that
+curve was measured at **0.5-beam** spacing, where strips are nearly disjoint
+and area grows as fast as modes. This sweep is at **0.25 beams**, the
+overlapping regime, where area grows far more slowly: N = 3 -> 20 multiplies
+modes by 5.2 but area by only 2.8, so density keeps rising. The saturation is a
+property of the spacing, not of ladders. Tightening at fixed N is also worth
+much more here than at 350 MHz: 1.0 -> 0.25 beams takes 41.87 -> 59.05 (+41%),
+against the +8.7% that 0.5 -> 0.25 bought at 350 MHz.
 
-    s350 = s_swept * 350.78 / f_swept        (0.25 beams @700  ->  0.125)
+**Next, if the matched-density test is wanted.**
 
-Getting this backwards would build a ladder four times too wide.
+1. Pin the configuration: **RUNNING, job 13891716** -- Tier 1 at N = 6 and 7,
+   same spacing, `--out hi_ladder_f700b` so the first sweep's npz is not
+   overwritten. ~678 s per pass measured, so ~2.4 h. The 350 MHz `matched` run
+   sat 2.2% from the raster; aim for similar.
+   (`ladder700.sbatch` now takes the counts as arguments and pins
+   `--ref-count` to the first of them, so the spacing sweep lands on a point
+   the count sweep already covers instead of silently re-running the default
+   N = 3, which would have wasted 34 min.)
+2. Convert before defining the strategy -- `ska_hi_ladder` quotes beams at
+   `--freq`, `ska_hi_experiment.ladder()` is fixed to 350 MHz beams:
 
-**Also added to `ska_hi_ladder.py`:** `--freq`, and `--ref-spacing` /
-`--ref-count` for the point where the two sweeps cross. Without the latter the
-count sweep silently ran at the hardcoded `REF_SPACING = 0.5` and ignored
-`--spacings` entirely.
+       0.25 beams @ 700 MHz = 0.517 deg = ladder(N, 0.1297)
 
-**When it lands.** If some configuration reaches ~76.55, warm it for the f700
-band and run `drift <config> raster` under one tag, as the `matched` run did at
-350 MHz. If none does, write up the saturation instead -- no further compute.
-
-**Not doing:** drift12 at 675-725 for the `hi_cleaning_depth` figure. Geoff is
-content with the single 350-400 MHz drift12 line, and the caption now says so.
+3. Warm that strategy for the f700 band (32 channels, nside 128) and run
+   `drift <config> raster` under one tag, as the 350 MHz `matched` run did.
 
 
 ### Tying modes to science: n_eff(k_perp) and a sufficiency test (2026-09-28)

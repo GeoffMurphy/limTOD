@@ -25,6 +25,13 @@ source "$HOME/ska/.venv/bin/activate"
 cd "$HOME/ska/limTOD-src/examples/SKA"
 source ./freq_env.sh
 echo "host $(hostname)"
-python -u ska_hi_ladder.py --freq 675.78125 \
-    --counts 3 8 12 20 --spacings 0.25 --out hi_ladder_f700
+# Counts and output name are arguments so a follow-up sweep does not need a
+# second script. --ref-count is pinned to the FIRST count so the spacing sweep
+# lands on a point the count sweep already covers, instead of silently adding
+# the default N = 3 again.
+COUNTS="${@:-3 8 12 20}"
+OUT="${OUT:-hi_ladder_f700}"
+FIRST="${COUNTS%% *}"
+python -u ska_hi_ladder.py --freq 675.78125 --counts $COUNTS \
+    --spacings 0.25 --ref-spacing 0.25 --ref-count "$FIRST" --out "$OUT"
 echo "ALL DONE ladder700"
