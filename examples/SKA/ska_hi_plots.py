@@ -653,23 +653,17 @@ def fig_hi_maps(exp, nside=64, nmodes=4, text=None, variant="cr_"):
     dmap = demean(prep(exp["drift_hi_mapmade"]))[ch] * 1e3
     rmap = demean(prep(exp["raster_hi_mapmade"]))[ch] * 1e3
     # Reconvolve first, then clean -- the order run_hi_experiment.py uses.
-    clean = demean(A.pca_clean(prep(exp["raster_data_cube"]), nmodes))[ch] * 1e3
-
     v = float(np.nanpercentile(np.abs(true), 99))
-    v_clean = float(np.nanpercentile(np.abs(clean), 99))
     # Explicit gridspec rather than plt.subplots: a colorbar attached to one
     # panel steals space from that panel alone, leaving the 2x2 visibly
     # unequal. Dedicated cells for both bars keep the four panels identical.
-    fig = plt.figure(figsize=_figsize("hi_maps", (9.6, 5.9)),
+    fig = plt.figure(figsize=_figsize("hi_maps", (12.0, 2.95)),
                      layout="constrained")
-    gs = fig.add_gridspec(3, 3, height_ratios=[1, 1, 0.055],
-                          width_ratios=[1, 1, 0.035])
-    flat = [fig.add_subplot(gs[r, c]) for r in (0, 1) for c in (0, 1)]
-    cax_shared = fig.add_subplot(gs[0:2, 2])
-    cax_clean = fig.add_subplot(gs[2, 1])
+    gs = fig.add_gridspec(2, 3, height_ratios=[1, 0.055])
+    flat = [fig.add_subplot(gs[0, c]) for c in (0, 1, 2)]
+    cax_shared = fig.add_subplot(gs[1, :])     # one bar, under all the maps
     panels = [(true, "True HI", v), (dmap, "Drift, map-made", v),
-              (rmap, "Raster, map-made", v),
-              (clean, f"Raster, cleaned data ({nmodes} modes)", v_clean)]
+              (rmap, "Raster, map-made", v)]
     ims = []
     win = None
     for ax, (vals, title, vv) in zip(flat, panels):
@@ -680,33 +674,100 @@ def fig_hi_maps(exp, nside=64, nmodes=4, text=None, variant="cr_"):
         # doubles in a 2x2 grid.
         win = win or _data_window(img, extent)
         ax.set_xlim(*win[0]); ax.set_ylim(*win[1])
-    # Axis furniture only on the outer edges of the grid.
-    for ax in flat[:2]:
-        ax.set_xlabel("")
-        ax.tick_params(labelbottom=False)   # bottom row carries the axis
-    for ax in (flat[1], flat[3]):
+    # One row, so only the leftmost panel carries the y axis.
+    for ax in flat[1:]:
         ax.tick_params(labelleft=False)
-    for ax in (flat[0], flat[2]):
-        ax.set_ylabel("offset  [deg]", fontsize=9.8)
+    flat[0].set_ylabel("offset  [deg]", fontsize=9.8)
     # One bar for the three panels that share a scale, one for the outlier --
     # four identical bars would imply four different scales. The odd one is
     # horizontal under its own panel so the split reads before the numbers do.
-    cb = fig.colorbar(ims[0], cax=cax_shared)
+    cb = fig.colorbar(ims[0], cax=cax_shared, orientation="horizontal")
     cb.set_label("$\\delta T_b$  [$\\mu$K]", fontsize=9.8)
     cb.ax.tick_params(labelsize=8)
-    cb2 = fig.colorbar(ims[3], cax=cax_clean, orientation="horizontal")
-    # Derived, not hardcoded: the ratio moves with `nmodes` (51x at 4 modes,
-    # 186x at 2, 18x at 8), and a fixed "50x" would quietly go wrong.
-    cb2.set_label(f"$\\delta T_b$  [$\\mu$K] — {v_clean / v:.0f}$\\times$ "
-                  "the shared scale", fontsize=9.8)
-    cb2.ax.tick_params(labelsize=8)
 
-    _title(fig, "The HI in the map domain, and why you cannot see it",
-             f"Channel {ch} ({freqs[ch]:.1f} MHz), frequency mean removed. First "
-             "three share a colour scale; the fourth needs its own, and that is "
-             "the result — the cleaned map is residual, not signal.",
-           x=0.01, y_title=1.10, y_sub=1.02, override=text)
+    '''_title(fig, "The HI in the map domain: the map-maker recovers it",
+             f"Channel {ch} ({freqs[ch]:.1f} MHz), frequency mean removed. All "
+             "three panels share ONE colour scale — the cleaned maps, which "
+             "need a scale two orders of magnitude wider, are Fig. hi_cleaned.",
+           x=0.01, y_title=1.13, y_sub=1.03, override=text)'''
     return _save(fig, "hi_maps")
+
+
+def fig_hi_cleaned(exp, nside=64, nmodes=4, text=None, variant="cr_"):
+    """What survives the clean, for both strategies, on ONE colour scale.
+
+    Split out of ``fig_hi_maps`` 2026-09-30: having the cleaned panel sit in the
+    same 2x2 as the map-made ones meant two colour bars in one figure, which
+    reads as two panels being comparable when they are 82x apart. One scale per
+    figure is the rule; the ratio between the two figures goes in the label.
+
+    The two strategies differ by only ~4x here, so they share a bar honestly --
+    and the drift's residual visibly dominating is the point, not an artefact.
+    """
+    div, _ = _cmaps()
+    common = np.asarray(exp["common"])
+    freqs = exp["freqs"]
+    ch = len(freqs) // 2
+    rot = (158.30, 9.375)
+    reso, xsize = 5.0, 330
+    half = reso * xsize / 60.0 / 2.0
+    extent = (-half, half, -half, half)
+
+    if variant in ("cr_", "cr"):
+        interior = np.asarray(exp["interior"], bool)
+        pix = common[interior]
+        def prep(cube):
+            return A.common_resolution(np.asarray(cube), freqs, common,
+                                       nside)[:, interior]
+    else:
+        pix = common
+        def prep(cube):
+            return np.asarray(cube)
+
+    def demean(c):
+        return c - c.mean(axis=0, keepdims=True)
+
+    true = demean(prep(exp["drift_hi_true"]))[ch] * 1e3
+    v_hi = float(np.nanpercentile(np.abs(true), 99))
+    cleaned = {s: demean(A.pca_clean(prep(exp[f"{s}_data_cube"]), nmodes))[ch]
+               * 1e3 for s in ("drift", "raster")}
+    v = max(float(np.nanpercentile(np.abs(c), 99)) for c in cleaned.values())
+
+    fig = plt.figure(figsize=_figsize("hi_cleaned", (8.6, 3.05)),
+                     layout="constrained")
+    gs = fig.add_gridspec(2, 2, height_ratios=[1, 0.055])
+    axs = [fig.add_subplot(gs[0, c]) for c in (0, 1)]
+    cax = fig.add_subplot(gs[1, :])            # one bar, under both maps
+
+    ims, win = [], None
+    for ax, s in zip(axs, ("drift", "raster")):
+        vals = cleaned[s]
+        img = _project(vals, pix, nside, reso, xsize, rot)
+        r = float(np.nanpercentile(np.abs(vals), 99)) / v_hi
+        ims.append(_mapshow(ax, img, div, -v, v,
+                            f"{s.capitalize()}, cleaned ({nmodes} modes)",
+                            extent))
+        ax.annotate(f"{r:.0f}$\\times$ the HI scale", (0.5, 0.02),
+                    xycoords="axes fraction", ha="center", va="bottom",
+                    color=INK, fontsize=9.8, fontweight="semibold",
+                    bbox=dict(facecolor=SURFACE, edgecolor="none", pad=2.0))
+        win = win or _data_window(img, extent)
+        ax.set_xlim(*win[0]); ax.set_ylim(*win[1])
+    axs[1].tick_params(labelleft=False)
+    axs[0].set_ylabel("offset  [deg]", fontsize=9.8)
+
+    cb = fig.colorbar(ims[0], cax=cax, orientation="horizontal")
+    cb.set_label("$\\delta T_b$  [$\\mu$K]", fontsize=9.8)
+    cb.ax.tick_params(labelsize=8)
+
+    '''_title(fig, "What survives the clean is residual, not signal",
+             f"Channel {ch} ({freqs[ch]:.1f} MHz), {nmodes} modes removed, "
+             "frequency mean removed. Both panels share ONE colour scale, and "
+             "it is ~two orders of magnitude wider than\nthe HI scale of "
+             "Fig. hi_maps — the annotation on each panel gives the factor. "
+             "The drift's residual dominates the raster's by about 4x.",
+           x=0.01, y_title=1.16, y_sub=1.02, override=text)'''
+    return _save(fig, "hi_cleaned")
 
 
 # ---------------------------------------------------------------------------

@@ -1057,21 +1057,100 @@ against the +8.7% that 0.5 -> 0.25 bought at 350 MHz.
 
 **Next, if the matched-density test is wanted.**
 
-1. Pin the configuration: **RUNNING, job 13891716** -- Tier 1 at N = 6 and 7,
-   same spacing, `--out hi_ladder_f700b` so the first sweep's npz is not
-   overwritten. ~678 s per pass measured, so ~2.4 h. The 350 MHz `matched` run
-   sat 2.2% from the raster; aim for similar.
-   (`ladder700.sbatch` now takes the counts as arguments and pins
-   `--ref-count` to the first of them, so the spacing sweep lands on a point
-   the count sweep already covers instead of silently re-running the default
-   N = 3, which would have wasted 34 min.)
-2. Convert before defining the strategy -- `ska_hi_ladder` quotes beams at
-   `--freq`, `ska_hi_experiment.ladder()` is fixed to 350 MHz beams:
+1. **DONE, job 13891716 (2 h 24 min).** N = 6 gives **76.47** modes/100 deg^2
+   against the raster's **76.55** -- **0.10% apart**, a tighter match than
+   drift12 manages at 350 MHz (2.2%). N = 7 overshoots at 80.12. Results in
+   `results/hi_ladder_f700b_ns128.npz`.
 
-       0.25 beams @ 700 MHz = 0.517 deg = ladder(N, 0.1297)
+2. **Strategy added: `drift6m`** = `ladder(6, 0.12977)`. The spacing is quoted
+   in beams at the band bottom because that is what `ladder()` does, so 0.12977
+   there IS 0.25 beams at 675.78 MHz. Elevations 48.708 ... 51.292, verified
+   against the sweep's own output before submitting.
 
-3. Warm that strategy for the f700 band (32 channels, nside 128) and run
-   `drift <config> raster` under one tag, as the 350 MHz `matched` run did.
+3. **RUNNING: warm array 13892711** (drift6m, 32 channels, nside 128), then
+   experiment + ablation **13892723**, chained `afterok`. Tag `matched700`,
+   strategies `drift drift6m raster` in one run so all three share an HI
+   realisation.
+
+**What it answers.** At 350 MHz, matching mode density leaves cross-linking
+worth 9.3x. At 675-725 MHz the drift beats the raster outright on
+`residual/HI` (16.3 against 38.0). This asks whether the drift still loses at
+*matched density* even where it wins outright -- i.e. whether cross-linking is
+a permanent structural advantage or one that dissolves once the beam narrows.
+Either answer is a result; they say different things about what a survey
+designer should do above 600 MHz.
+
+**Do not compare against the published f700 numbers.** Three strategies in the
+union means a different HI realisation. Ratios within the run are exact.
+
+**RESULT (jobs 13892711 / 13892723, 1 h 37 min) -- AND IT IS NOT USABLE.**
+57 interior pixels, common resolution, 4 modes:
+
+| strategy | floor | total | noise |
+|---|---|---|---|
+| drift (3 strips) | 10.2 | 10.8 | 0.77 |
+| drift6m (matched density) | 57.4 | 65.6 | 1.92 |
+| raster | 33.7 | 34.2 | 1.12 |
+
+Taken at face value: drift6m/raster = **1.70x** (the drift still loses at
+matched density), drift/raster = 0.30x (the known inversion), and drift6m is
+**5.6x worse than the 3-strip drift** -- the longer ladder actively hurt.
+
+**Why it must not be quoted.** `drift6m` reaches the raster's density by
+packing six strips into **2.58 deg** of declination -- *less than the 3 deg
+interior margin*. The common patch across the three strategies is therefore
+thin, and after masking the evaluation region is a sliver **0.60 deg** across,
+i.e. **0.29 beams** at this band, against 1.17 beams for the published f700
+run. Every pixel in it is sub-beam correlated, and it sits where drift6m's own
+coverage is falling off. The 5.6x is most likely that, not geometry.
+
+**This is a design error, not a code error.** The sweep matched *density*, and
+density is achievable at 700 MHz only by concentrating strips -- which shrinks
+the footprint until there is nothing left to evaluate on. Matching density and
+keeping an evaluable patch are separate constraints and only one was imposed.
+
+**The fix, if the test is still wanted.** Find a configuration at the same
+density but a much wider footprint: more strips at wider spacing. From the
+first sweep at 0.25 beams, N = 12 gives 95.03 over a 5.68 deg span, so
+widening the spacing at N = 12 should drop the density toward 76.55 while
+spanning >10 deg. Needs a spacing sweep at fixed N = 12 (~36 passes,
+~660 s each, so ~6.6 h) before any TOD, then warm + run (~4 h). Roughly a day.
+
+**FIXED, and the fix is running (2026-09-30).** Spacing sweep at N = 12,
+job 13898503 (4 h 42 min), `results/hi_ladder_f700c_ns128.npz`:
+
+| N = 12, spacing @700 | modes/100 deg^2 | area deg^2 | dec span |
+|---|---|---|---|
+| 0.50 beams | 82.06 | 297.1 | 11.4 deg |
+| 0.70 beams | 68.09 | 377.3 | 16.0 deg |
+| 0.90 beams | 56.45 | 462.5 | 20.4 deg |
+
+The raster's 76.55 is crossed at **0.579 beams**, i.e. `ladder(12, 0.3005)`,
+added as strategy **`drift12m`**. Elevations 43.418 ... 56.582, **span
+13.16 deg**.
+
+**Why this one works where drift6m did not.** The common patch is set by the
+*narrowest* footprint among the strategies in the run. drift6m spanned 2.58 deg
+-- narrower than drift+raster's own common patch -- so it became the limiting
+footprint and the interior collapsed to 0.60 deg. drift12m spans 13.16 deg,
+comfortably wider than the published drift's 4 deg, so the common patch stays
+set by drift+raster and the interior should return to the ~171 px of the
+published f700 run. **Check that first when the results land: if the interior
+is not back around 171 px, the run is void for the same reason as before.**
+
+**Queued:** warm array **13920776** (drift12m, 32 channels, nside 128), then
+experiment + ablation **13920795**, chained `afterok`, tag `matched700b`,
+strategies `drift drift12m raster`. Job **13920752** independently re-measures
+the density at exactly 0.579 beams so the matched figure can be quoted rather
+than interpolated.
+
+**Superseded:** `matched700` (drift6m) is discarded. Its npz files stay in
+`results/` but must not be quoted.
+
+**Diagnostic worth running either way:** `local_modes.py` over the 57 pixels.
+If drift6m's *local* mode density there is far below its patch-average 76.47,
+that settles it -- the premise fails locally and the number is void. The
+operators are on Ilifu only; they are not in the local `hi_cache/`.
 
 
 ### Tying modes to science: n_eff(k_perp) and a sufficiency test (2026-09-28)

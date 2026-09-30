@@ -439,18 +439,27 @@ residual.}
 \centering
 \includegraphics[width=\textwidth]{hi_maps.png}
 \caption{The HI in the map domain. Channel 16 (\SI{375.8}{\mega\hertz}), with
-the frequency mean removed. The true HI and each strategy's map-made response
-share one colour scale and are recognisably the same field: the map-maker
-recovers the injected signal, and by eye the drift and the raster both do so.
-The fourth panel is the cleaned data at four modes removed, and it needs a
-colour scale \emph{82 times wider} --- what survives the clean is residual, not
-signal. This is the whole result in one figure, and it is the reason the rest
-of the paper works in the power spectrum rather than the map.
-% TODO: placeholder. Collaborators want maps; settle whether this stays as
-% true/drift/raster/cleaned, or becomes a drift-vs-raster recovery comparison
-% with the residual maps beside them.
-}
+the frequency mean removed. All three panels share \emph{one} colour scale and
+are recognisably the same field: the map-maker recovers the injected signal,
+and by eye the drift and the raster both do so. What survives foreground
+cleaning is Fig.~\ref{fig:hicleaned}, on its own scale.}
 \label{fig:himaps}
+\end{figure*}
+
+\begin{figure*}
+\centering
+\includegraphics[width=\textwidth]{hi_cleaned.png}
+\caption{What survives the clean, for both strategies, at four modes removed.
+Both panels share \emph{one} colour scale, and it is roughly two orders of
+magnitude wider than that of Fig.~\ref{fig:himaps} --- $348\times$ and
+$82\times$ the HI scale respectively, annotated on each panel. The split from
+Fig.~\ref{fig:himaps} is deliberate: one colour scale per figure, because two
+bars in a single figure invites the reading that all its panels are comparable
+when they are a hundredfold apart. The drift's residual dominates the raster's
+by about $4\times$ here; note that this is a 99th-percentile display amplitude
+at one channel and is \emph{not} the residual/HI ratio of
+Table~\ref{tab:residual}, which is a median over $\kpar$ of a power ratio.}
+\label{fig:hicleaned}
 \end{figure*}
 
 \begin{figure*}

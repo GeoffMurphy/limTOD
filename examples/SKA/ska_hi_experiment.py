@@ -241,10 +241,28 @@ def rasternarrow_pointings():
 #            the raster's 22.31. The MATCHED-DENSITY run: it removes the
 #            extrapolation the design figure currently relies on, by putting a
 #            parked drift at the cross-linked raster's own mode density.
+#   drift6m  6 strips at 0.1298 beams -- which is 0.25 beams AT 675.78 MHz,
+#            since ladder() quotes spacing in beams at the band bottom by
+#            design. Measured 76.47 modes/100 deg^2 there against the raster's
+#            76.55, i.e. 0.10% apart: the MATCHED-DENSITY run for 675-725 MHz,
+#            and a tighter match than drift12 manages at 350 MHz (2.2%).
+#            Found by the Tier 1 sweeps, jobs 13889513 / 13891716.
+#            Elevations 48.708 ... 51.292, verified against the sweep.
 DRIFT_LADDERS = {
     "drift8": ladder(8, 0.5),
     "drift3t": ladder(3, 0.25),
     "drift12": ladder(12, 0.5),
+    "drift6m": ladder(6, 0.12977),
+    # drift12m  12 strips at 0.3005 beams = 0.579 beams AT 675.78 MHz, where it
+    #           measures the raster's 76.55 modes/100 deg^2. This REPLACES
+    #           drift6m for the 700 MHz matched-density test: drift6m matched
+    #           the density by packing 6 strips into 2.58 deg of declination,
+    #           which is narrower than the drift+raster common patch, so it
+    #           became the limiting footprint and the interior collapsed to a
+    #           0.60 deg sliver (0.29 beams) -- see HANDOFF. This one spans
+    #           13.2 deg, wider than the published drift's 4 deg, so the common
+    #           patch stays set by drift+raster and the interior survives.
+    "drift12m": ladder(12, 0.3005),
 }
 
 STRATEGIES = {

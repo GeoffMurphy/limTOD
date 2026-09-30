@@ -30,8 +30,11 @@ echo "host $(hostname)"
 # lands on a point the count sweep already covers, instead of silently adding
 # the default N = 3 again.
 COUNTS="${@:-3 8 12 20}"
+SPACINGS="${SPACINGS:-0.25}"
 OUT="${OUT:-hi_ladder_f700}"
 FIRST="${COUNTS%% *}"
+FIRSTSP="${SPACINGS%% *}"
 python -u ska_hi_ladder.py --freq 675.78125 --counts $COUNTS \
-    --spacings 0.25 --ref-spacing 0.25 --ref-count "$FIRST" --out "$OUT"
+    --spacings $SPACINGS --ref-spacing "$FIRSTSP" --ref-count "$FIRST" \
+    --out "$OUT"
 echo "ALL DONE ladder700"

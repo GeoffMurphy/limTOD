@@ -41,6 +41,11 @@ FIGS = [
      "Map domain. True HI, both map-made responses on one scale, and the "
      "cleaned data needing a scale 82x wider. PLACEHOLDER -- see the TODO in "
      "the paper caption."),
+    ("hi_cleaned", P, "fig_hi_cleaned", "fig_hi_cleaned(exp)",
+     "Sec. 6 -- HI signal recovery",
+     "Both strategies' cleaned maps on ONE shared scale, ~100x wider than "
+     "hi_maps. Split out of hi_maps so each figure carries a single colour "
+     "scale."),
     ("hi_transfer_function", P, "fig_transfer_function", "fig_transfer_function(exp)",
      "Sec. 6 -- HI signal recovery",
      "T(k_par) per mode count, +/-1 sigma over 20 mocks."),
