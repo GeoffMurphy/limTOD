@@ -46,6 +46,30 @@ RESDIR = os.path.join(_HERE, "results")
 
 # --- palette (validated categorical slots 1-3 + chart chrome) ---------------
 DRIFT, RASTER, THIRD = "#2a78d6", "#eb6834", "#1baf7a"
+# One highlight colour, for a single annotated point on an otherwise
+# monochrome figure. Distinct from RASTER's orange so the two cannot be
+# confused where both appear.
+HIGHLIGHT = "#d1232a"
+
+# A tint of DRIFT for the matched-density ladder: same hue family, so the two
+# drift geometries read as a pair against the raster, but clearly separable.
+DRIFT_LIGHT = "#89b4e8"
+
+# One colour per strategy, used by every figure that shows strategies side by
+# side, so a colour means the same thing throughout the paper. Marker shapes
+# are kept distinct as well, so the figures survive greyscale printing.
+PAPER_STRAT = {
+    "drift":    dict(color=DRIFT,       marker="o", ls="-",
+                     label="3-strip drift"),
+    "drift12":  dict(color=DRIFT_LIGHT, marker="s", ls=(0, (4, 2)),
+                     label="12-strip drift"),
+    "drift12m": dict(color=DRIFT_LIGHT, marker="s", ls=(0, (4, 2)),
+                     label="12-strip drift"),
+    "drift875": dict(color=DRIFT,       marker="X", ls="none",
+                     label="drift, re-spaced"),
+    "raster":   dict(color=RASTER,      marker="^", ls=(0, (5, 2.5)),
+                     label="1-dish raster"),
+}
 SURFACE = "#fcfcfb"
 # INK2/MUTED darkened to near-black 2026-09-28 (house preference: minimal
 # colour, and recessive greys were doing no work once markers carry identity).
@@ -86,7 +110,10 @@ TF_PANELS = (2, 4, 6, 10)
 MONO = [dict(color=INK, marker="o", ls="-"),
         dict(color=INK, marker="^", ls=(0, (5, 2.5))),
         dict(color=INK, marker="s", ls=(0, (1, 1.8)))]
-MONO_STRAT = {"drift": MONO[0], "raster": MONO[1], "drift12": MONO[2]}
+# drift12m is the 675-725 MHz matched-density ladder, the same geometry
+# drift12 is at 350-400, so it carries the same style.
+MONO_STRAT = {"drift": MONO[0], "raster": MONO[1], "drift12": MONO[2],
+              "drift12m": MONO[2]}
 
 plt.rcParams.update({
     "figure.facecolor": SURFACE, "axes.facecolor": SURFACE,
@@ -351,10 +378,40 @@ def fig_ablation(abl, text=None, tag="cr_"):
     # against the surface is 2.11, a WARN, which is why every line is legended
     # AND carries its own marker rather than resting on hue.
     FOURTH = "#eda100"
+    # Two noise arms, not one, and they must be the SAME combination under two
+    # correlation assumptions -- `noiseonly` and `noiseonly_indep` are both
+    # (1 + g)(1 + w), so only the white realisation differs between them.
+    # Pairing `whiteonly` against `noiseonly_indep` would have been wrong: the
+    # latter carries the 1/f term too (negligible here, 5.1 against 1025.7 for
+    # the drift, but the label has to be true).
+    #
+    # `noiseonly` is the realisation actually in the cached TODs, where
+    # `simulate_foreground` reseeds with p["seed"]
+    # (= SEED + night, no frequency dependence) once per pass and then calls
+    # generate_TOD one channel at a time -- so every channel draws the SAME
+    # white realisation. Channel-identical noise is spectrally smooth, lives in
+    # the same few modes as the foreground, and PCA removes most of it, which is
+    # why that arm lands far below the floor. `noiseonly_indep` draws per
+    # channel from SeedSequence([seed, channel]) and is the honest thermal-noise
+    # curve; it lands far ABOVE the floor. The gap between the two IS the
+    # figure's point -- drawing only the first turns a cleaning artefact into a
+    # noise budget.
+    #
+    # HIGHLIGHT for the independent arm because it is the one the reader must
+    # not miss, and because FOURTH (yellow) has a 2.11 surface contrast -- a
+    # WARN -- which is tolerable for a supporting line and not for the headline
+    # one. It carries no "re-spaced drift" meaning here; PAPER_STRAT is not used
+    # by this figure and the two never appear together.
     arms = [("floor", DRIFT, "Beam + prior floor (noiseless data)", "-", "o", 5),
             ("total", INK, "Full data (floor + 1/f + white)", "none", "x", 9),
             ("gainonly", THIRD, "1/f gain alone", "-", "^", 6),
-            ("whiteonly", FOURTH, "White noise alone", "-", "s", 5)]
+            ("noiseonly", FOURTH, "All noise, white identical in every channel "
+             "(as simulated)", (0, (4, 2)), "s", 5),
+            ("noiseonly_indep", HIGHLIGHT, "All noise, white independent per channel",
+             "-", "D", 5)]
+    # Result files written before the independent arm existed simply lose it.
+    arms = [a for a in arms if f"drift_{tag}{a[0]}_{int(abl['nmodes_grid'][0])}"
+            in abl or a[0] in ("floor", "total")]
     fig, axes = plt.subplots(1, 2, figsize=_figsize("hi_ablation", (11.6, 4.9)), sharey=True)
 
     for ax, s in zip(axes, ("drift", "raster")):
@@ -388,15 +445,18 @@ def fig_ablation(abl, text=None, tag="cr_"):
                                mec=c, mew=1.6, lw=(0 if ls == "none" else 2),
                                label=lab)
                         for a, c, lab, ls, mk, ms in arms],
-               loc="upper left", bbox_to_anchor=(0.045, 0.90), ncols=4,
-               handlelength=2.0, columnspacing=1.8)
+               loc="upper left", bbox_to_anchor=(0.045, 0.95), ncols=3,
+               handlelength=2.0, columnspacing=1.8, fontsize=9.3)
 
-    '''_title(fig, "The blocker is the floor, and 1/f is the smallest term in it",
-             "Noiseless and full data track each other to a few per cent. Split "
-             "apart, 1/f sits below the white noise, which is itself far below "
-             "the floor — so neither is what limits HI recovery.",
+    '''_title(fig, "The floor is what does not integrate down — but the noise "
+             "is not small",
+             "Noiseless and full data track each other, because the white noise "
+             "in the simulated TOD is identical in every channel and the clean "
+             "removes it. Drawn with an independent realisation per channel, "
+             "thermal noise sits ABOVE the floor at 3 h: the gap between the two "
+             "white arms is a cleaning artefact, not a noise budget.",
            x=0.045, y_title=1.03, y_sub=0.965, override=text)'''
-    fig.tight_layout(rect=(0, 0, 1, 0.84))
+    fig.tight_layout(rect=(0, 0, 1, 0.80))
     plt.show()
     return _save(fig, "hi_ablation")
 

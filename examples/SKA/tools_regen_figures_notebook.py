@@ -72,8 +72,13 @@ FIGS = [
      "1.00x exactly. The other half of the old two-panel figure."),
     ("hi_kmodes", K, "fig_kmodes", "fig_kmodes(kres)",
      "Sec. 8 -- Survey design",
-     "tr(WA) decomposed by angular scale, and the sky area each strategy would "
-     "need for sigma_P/P = 1 in auto and in cross-correlation."),
+     "tr(WA) decomposed by angular scale. Split from the sufficiency panel "
+     "2026-10-01."),
+    ("hi_sufficiency", K, "fig_sufficiency", "fig_sufficiency(kres)",
+     "Sec. 8 -- Survey design",
+     "Sky area needed to detect the HI x tracer cross-power at 1/3/5 sigma. "
+     "The auto rows carry no area -- the floor is a bias there -- only the "
+     "floor/HI power ratio. The other half of the old hi_kmodes."),
     ("hi_frequency_ratio", D, "fig_frequency_ratio",
      "fig_frequency_ratio(bands)", "Sec. 8 -- Survey design",
      "The quotient panel on its own. Same data as the third panel of "

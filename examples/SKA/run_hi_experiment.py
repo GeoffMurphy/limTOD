@@ -25,6 +25,7 @@ if _HERE not in sys.path:
 
 import ska_hi_experiment as X
 import ska_hi_analysis as A
+import ska_hi_prior as prior
 from ska_common import gdsm_equatorial_sky_model
 from ska_hi_mock import HIBandConfig, build_hi_cube, project_to_healpix
 
@@ -53,6 +54,11 @@ def main():
                          "strategy set is not the published drift+raster, or "
                          "the published results npz is silently overwritten -- "
                          "the filename encodes only the band and grid.")
+    ap.add_argument("--pin-prior", action="store_true",
+                    help="solve every strategy with the BAND's reference "
+                         "sigma_p (ska_hi_prior) instead of its own patch "
+                         "variance, so a wider footprint is not penalised for "
+                         "its extent. Must match the ablation for the same tag.")
     ap.add_argument("--margin", type=float, default=3.0,
                     help="degrees from the patch edge to discard when "
                          "evaluating common-resolution cubes (zero-padded "
@@ -64,6 +70,14 @@ def main():
     if not args.tag and sorted(args.strategies) != ["drift", "raster"]:
         sys.exit(f"strategy set {args.strategies} needs --tag, or it would "
                  "overwrite the published hi_experiment npz")
+    if args.pin_prior:
+        if not args.tag:
+            sys.exit("--pin-prior changes every number: pass --tag")
+        if prior.REF_STRATEGY not in args.strategies:
+            sys.exit(f"--pin-prior needs '{prior.REF_STRATEGY}' in "
+                     f"--strategies ({' '.join(args.strategies)}): it defines "
+                     "the band reference")
+        prior.PINNED = True
 
     freqs = X.channel_freqs()
     cfg = X.band_config() if args.hi_seed is None \
@@ -77,6 +91,13 @@ def main():
 
     # ---- operators and the common patch --------------------------------
     ops = {s: A.channel_operators(s) for s in args.strategies}
+    if args.pin_prior:
+        if prior.load() is None:
+            prior.build(ops[prior.REF_STRATEGY])
+        _ref = prior.load(required=True)
+        _sp = np.sqrt(_ref["sigma_p2"])
+        print(f"prior pinned to the band reference ({_ref['ref_strategy']}): "
+              f"sigma_p {_sp.min():.4f}-{_sp.max():.4f} K", flush=True)
     for s in args.strategies:
         n = [len(m.pixel_indices) for m in ops[s]]
         print(f"  {s}: {min(n)}-{max(n)} px per channel", flush=True)
@@ -107,10 +128,12 @@ def main():
     fg_truth = {f: gdsm_equatorial_sky_model(freq=f, nside=X.NSIDE)
                 for f in freqs}
 
-    out = dict(freqs=freqs, common=common, dr_mpc=dr, interior=interior,
+    out = dict(pin_prior=bool(args.pin_prior),
+               freqs=freqs, common=common, dr_mpc=dr, interior=interior,
                margin_deg=args.margin, nmodes_grid=np.asarray(NMODES_GRID))
 
     for strategy in args.strategies:
+        prior.set_strategy(strategy, ops[strategy])
         print(f"\n=== {strategy} ===", flush=True)
         gain, white = X.replay_noise(strategy)
         t0 = time.time()
@@ -135,11 +158,14 @@ def main():
 
             mu = np.full_like(truth, float(np.mean(truth)))   # flat prior
             sel = np.isin(pix, common)
-            data_cube.append(A.solve(mm, total, truth, mu)[sel])
-            hi_map_cube.append(A.response(mm, hi_patch, truth)[sel])
+            data_cube.append(A.solve(mm, total, truth, mu,
+                                     freq_mhz=f)[sel])
+            hi_map_cube.append(A.response(mm, hi_patch, truth,
+                                          freq_mhz=f)[sel])
             for j in range(args.mocks):
                 mock_patch = on_patch(mocks_union[j], pix)[i]
-                mock_cubes[j].append(A.response(mm, mock_patch, truth)[sel])
+                mock_cubes[j].append(
+                    A.response(mm, mock_patch, truth, freq_mhz=f)[sel])
             if (i + 1) % 8 == 0:
                 print(f"  solved {i + 1}/{len(freqs)} channels "
                       f"({time.time() - t0:.0f} s)", flush=True)

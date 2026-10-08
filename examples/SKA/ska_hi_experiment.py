@@ -263,6 +263,16 @@ DRIFT_LADDERS = {
     #           13.2 deg, wider than the published drift's 4 deg, so the common
     #           patch stays set by drift+raster and the interior survives.
     "drift12m": ladder(12, 0.3005),
+    # drift875: the SAME outer-strip span as the fixed 52/50/48 ladder
+    # (3.9827 deg), covered by four strips instead of three. At 875 MHz the
+    # fixed ladder's 1.9913 deg step is 1.247 beams, so its strips no longer
+    # overlap and the floor climbs back (16.5x at 675-725 -> 39.3x at 850-900,
+    # while the raster holds at ~24x). Four strips at 1.3276 deg = 0.831 beams
+    # restore contiguous coverage over the identical footprint, so the common
+    # patch and interior are unchanged and the only variable is the gap.
+    # The cost is a fourth night: at this frequency that span CANNOT be covered
+    # contiguously with three strips, which is the design point.
+    "drift875": ladder(4, 1.0 / 3.0),
 }
 
 STRATEGIES = {

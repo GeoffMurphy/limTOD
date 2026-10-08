@@ -77,6 +77,7 @@ if _HERE not in sys.path:
 # Palette, rcParams and the _save/_tidy/_title helpers all come from the
 # figure module so this prototype cannot drift from the published figures.
 import ska_hi_plots as P
+import ska_hi_prior as prior
 from ska_hi_plots import (DRIFT, RASTER, THIRD, SURFACE, INK, INK2, MUTED,
                           GRID, BASELINE, STRAT, RESDIR)
 
@@ -121,7 +122,7 @@ def freq_mode_density(nside=128, refresh=False):
             term = Aop.T @ (Aop / var[:, None])
             M = term if M is None else M + term
         w = np.maximum(np.linalg.eigvalsh(M)[::-1], 0.0)
-        s_inv = 1.0 / max(float(np.std(truth)), 1e-3) ** 2
+        s_inv = prior.s_inv(f, truth, label='freq_mode_density')
         freqs.append(f)
         areas.append(len(pix) * hp.nside2pixarea(nside, degrees=True))
         n_eff.append(float(np.sum(w / (w + s_inv))))
@@ -176,12 +177,23 @@ def collect(mabl, ladder, modes, fm, nmodes=NMODES, extra_abl=None):
     lad = {int(n): float(dd) for n, sp, dd
            in zip(ladder["n_strips"], ladder["spacing_beams"], ladder["dens"])
            if abs(float(sp) - 0.5) < 1e-9}
-    d["drift"]["dens"] = lad[3]
     if "drift8" in d:
         d["drift8"]["dens"] = lad[8]
-    d["drift12"]["dens"] = 21.81       # from hi_ladder_long_ns64.npz
-    d["raster"]["dens"] = (100.0 * float(modes["raster_n_eff"])
-                           / float(modes["raster_area_deg2"]))
+    # Mode densities must come from the SAME prior as the floors above, or the
+    # trade space mixes two conditionings -- which is the whole point of Sec.
+    # "Accessible sky modes". Under the amplitude-only prior they are read from
+    # the kmodes npz; the ladder sweep and hi_modes npz are own-prior and are
+    # used only as the fallback.
+    kpath = os.path.join(RESDIR, "hi_kmodes_f350_ns64.npz")
+    kd = np.load(kpath, allow_pickle=True) if os.path.exists(kpath) else None
+    def _dens(name, fallback):
+        if kd is not None and f"{name}_total" in kd:
+            return 100.0 * float(kd[f"{name}_total"]) / float(kd[f"{name}_area"])
+        return fallback
+    d["drift"]["dens"] = _dens("drift", lad[3])
+    d["drift12"]["dens"] = _dens("drift12", 21.81)
+    d["raster"]["dens"] = _dens("raster", 100.0 * float(modes["raster_n_eff"])
+                                / float(modes["raster_area_deg2"]))
     d["ladder"] = sorted(lad.items())
 
     # The ladder slope, now from two points in ONE run (drift -> drift12).
@@ -422,7 +434,7 @@ def _panel_levers(ax, d):
 
 
 def main():
-    matched = os.path.join(RESDIR, "hi_ablation_matched_f350_400_nc32_ns64.npz")
+    matched = os.path.join(RESDIR, "hi_ablation_amp350_f350_400_nc32_ns64.npz")
     mech = os.path.join(RESDIR, "hi_ablation_mech_f350_400_nc32_ns64.npz")
     if not os.path.exists(matched):
         sys.exit(f"need {os.path.basename(matched)} (Ilifu job 13857817); "
@@ -500,6 +512,13 @@ def fig_priorvar(pv, d=None, nmodes=NMODES, text=None):
 
     # --- left: residual against the prior scale ----------------------------
     P._tidy(axA)
+    # the sweep is in units of the truth patch variance, and the adopted
+    # prior is exactly 1.0 of it (PRIOR_VAR_SCALE), rescaled per strategy
+    # by the amplitude-only constant c_s
+    axA.axvline(1.0, color=INK, lw=1.4, ls=(0, (4, 3)), zorder=3)
+    axA.annotate("adopted\n(amplitude-only)", (1.0, axA.get_ylim()[1]),
+                 textcoords="offset points", xytext=(-7, -8), ha="right",
+                 va="top", color=INK, fontsize=9.8, linespacing=1.4)
     for s in STRAT:
         mono = P.MONO_STRAT[s]
         axA.plot(scales, pv[f"{s}_total_{nmodes}"], color=mono["color"],
@@ -611,9 +630,10 @@ def fig_ladder(ld, ld_long=None, floors=None, text=None):
               sample; at or above one beam they are disjoint and you buy area.
       middle  density against strip COUNT, now to N = 20, with N = 1 (a single
               parked dish) as the baseline.
-      right   the decomposition, normalised to N = 1. The marginal return per
-              strip is CONSTANT -- 11.7-12.7 modes for 43-47 deg² every time --
-              so the density curve flattens purely because area grows linearly
+      (the third panel, the decomposition normalised to N = 1, was dropped on
+      2026-10-07: its content -- that the marginal return per strip is constant
+      at 11.7-12.7 modes for 43-47 deg² -- is one sentence, so it belongs in the
+      caption rather than a panel)
               alongside modes, not because the ladder saturates.
 
     ``floors`` optionally overlays the two measured HI floors (3 and 12 dishes)
@@ -643,7 +663,7 @@ def fig_ladder(ld, ld_long=None, floors=None, text=None):
     iB = np.where(np.abs(sp - ref_sp) < 1e-9)[0]
     iB = iB[np.argsort(n[iB])]
 
-    fig, axes = plt.subplots(1, 3, figsize=P._figsize("hi_ladder", (14.6, 4.9)),
+    fig, axes = plt.subplots(1, 2, figsize=P._figsize("hi_ladder", (10.2, 4.9)),
                              gridspec_kw=dict(wspace=0.30))
 
     ax = axes[0]; P._tidy(ax)
@@ -688,27 +708,6 @@ def fig_ladder(ld, ld_long=None, floors=None, text=None):
     ax.set_title(f"spacing fixed at {ref_sp:g} beams", color=INK2,
                  fontsize=11, loc="left", pad=6)
 
-    ax = axes[2]; P._tidy(ax)
-    # two series -> no hue; linestyle and marker carry it
-    ax.plot(n[iB], n_eff[iB] / n_eff[iB][j1], ms=7, mfc=SURFACE, mew=2.0,
-            zorder=4, label="measured modes, tr($WA$)", **P.MONO[0])
-    ax.plot(n[iB], area[iB] / area[iB][j1], ms=6, mfc=SURFACE, mew=2.0,
-            zorder=4, label="sky area", **P.MONO[1])
-    ax.axhline(1.0, color=BASELINE, lw=1.0, ls=(0, (4, 3)), zorder=2)
-    ax.set_xlabel("N strips")
-    ax.set_ylabel("relative to a single parked dish")
-    ax.legend(loc="upper left", fontsize=10.1)
-    '''ax.set_title("Constant marginal return: ~12 modes per 44 deg$^2$, every strip",
-                 color=INK2, fontsize=11, loc="left", pad=6)'''
-
-    '''P._title(fig, "The drift cannot cross-link, so the Dec ladder is its only "
-             "geometry lever",
-             "Mode count only, one channel at 350.8 MHz, no TOD. N strips on N "
-             "sidereal days is arithmetically the same as N dishes parked at N "
-             "elevations for one hour. The ladder does not saturate \u2014 but a "
-             "mode count is not a residual, and cross-linking beats it 9$\\times$ "
-             "at matched density.",
-             x=0.012, y_title=1.05, y_sub=0.975, override=text)'''
     fig.tight_layout(rect=(0, 0, 1, 0.89))
     plt.show()
     return P._save(fig, "hi_ladder")
@@ -743,7 +742,11 @@ def fig_ladder_geometry(ld=None, text=None):
 
     # (n_strips, spacing_beams) -- the spacing arm, plus one point of the
     # count arm so both levers appear in the same picture.
-    panels = [(3, 0.25), (3, 0.5), (3, 1.0), (3, 1.5), (8, 0.5)]
+    # Three columns (2026-10-07), spanning overlapping -> just touching ->
+    # gapped. 1.5 beams rather than the 2.0 originally asked for: the ladder
+    # sweep measured 0.25/0.5/0.75/1.0/1.5, so 2.0 would have no measured mode
+    # density to annotate, and 1.5 already shows separated ribbons.
+    panels = [(3, 0.5), (3, 1.0), (3, 1.5)]
     meas = {}
     if ld is not None:
         for n, sp, d, a in zip(ld["n_strips"], ld["spacing_beams"],
@@ -751,7 +754,7 @@ def fig_ladder_geometry(ld=None, text=None):
             meas[(int(n), round(float(sp), 2))] = (float(d), float(a))
 
     fig, axes = plt.subplots(2, len(panels), figsize=P._figsize(
-        "hi_ladder_geometry", (15.0, 6.4)),
+        "hi_ladder_geometry", (10.2, 6.6)),
         gridspec_kw=dict(height_ratios=[1.25, 1.0], hspace=0.38, wspace=0.22))
 
     decs_all = []
@@ -819,7 +822,7 @@ def fig_ladder_geometry(ld=None, text=None):
         if (n, round(sp, 2)) in meas:
             d_, a_ = meas[(n, round(sp, 2))]
             ax.annotate(f"{d_:.1f} modes/100 deg$^2$\n{a_:.0f} deg$^2$ measured",
-                        (0.5, -0.5), xycoords="axes fraction", ha="center",
+                        (0.5, -0.42), xycoords="axes fraction", ha="center",
                         color=INK, fontsize=9.9, fontweight="semibold",
                         linespacing=1.4)
 
@@ -831,7 +834,7 @@ def fig_ladder_geometry(ld=None, text=None):
              "are one FWHM thick; the map-maker keeps everything above 5% of beam "
              "peak, so measured areas (annotated) exceed the rectangles.",
              x=0.012, y_title=1.035, y_sub=0.985, override=text)'''
-    fig.tight_layout(rect=(0, 0, 1, 0.90))
+    fig.tight_layout(rect=(0, 0.06, 1, 1.0))
     plt.show()
     return P._save(fig, "hi_ladder_geometry")
 
@@ -840,35 +843,72 @@ def fig_ladder_geometry(ld=None, text=None):
 # Why residual/HI must not be compared across bands
 # ---------------------------------------------------------------------------
 
+# (label, experiment npz, ablation npz, centre frequency).
+#
+# The residual and the ratio now come from the ABLATION, because that is where
+# the independent-white arms live and because `load_bands` previously read the
+# experiment while the correction tables were built from the ablation -- the
+# figure would have kept plotting shared-noise numbers while the text quoted
+# independent-noise ones. The two sources agree to 0.0%: the experiment's
+# p_clean_auto_n / p_mapmade IS the ablation's cr_total_n / cr_p_hi.
+#
+# The true-HI amplitude still comes from the experiment: p_true is the injected
+# cube's own power, with no solve in it, so it is independent of the prior and
+# of the noise model and nothing here moves it.
+# Ablations are the AMPLITUDE-ONLY pinned runs (2026-10-05). The experiment npz
+# supplies only p_true, the injected cube's own power, which has no solve in it
+# and so is independent of the prior and of the noise model.
 BANDS = [
-    ("350$-$400", "hi_experiment_matched_f350_400_nc32_ns64.npz", 375.0),
-    ("500$-$550", "hi_experiment_f500_f500_550_nc32_ns128.npz", 525.0),
-    ("675$-$725", "hi_experiment_f700_f675_725_nc32_ns128.npz", 700.0),
+    ("350$-$400", "hi_experiment_matched_f350_400_nc32_ns64.npz",
+     "hi_ablation_amp350_f350_400_nc32_ns64.npz", 375.0),
+    ("500$-$550", "hi_experiment_f500_f500_550_nc32_ns128.npz",
+     "hi_ablation_amp500_f500_550_nc32_ns128.npz", 525.0),
+    ("675$-$725", "hi_experiment_f700_f675_725_nc32_ns128.npz",
+     "hi_ablation_amp700_f675_725_nc32_ns128.npz", 700.0),
+    ("850$-$900", "hi_experiment_f875_f850_900_nc32_ns128.npz",
+     "hi_ablation_f875pin_f850_900_nc32_ns128.npz", 875.0),
 ]
 
 
-def load_bands(nmodes=NMODES, strategies=("drift", "raster")):
+def load_bands(nmodes=NMODES, strategies=("drift", "raster"), arm="floor"):
     """Foreground residual, HI amplitude and their ratio, per band.
 
+    ``arm`` selects what is plotted:
+
+    * ``"floor"`` (default) -- the NOISELESS beam + prior floor. This is the
+      strategy comparison: it is the term that does not integrate down, and it
+      is free of the white-noise model entirely.
+    * ``"total"`` -- full data with the SHARED white draw, i.e. the arm every
+      published number used. `simulate_foreground` re-seeds per PASS, so every
+      channel gets the identical white realisation; that follows the sky's
+      smooth spectrum and PCA removes most of it, which makes this the
+      optimistic case.
+    * ``"total_indep"`` -- full data with white redrawn per (pass, channel).
+
     Only bands whose npz is present are returned, so this works with two bands
-    and improves with three.
+    and improves with four.
     """
+    arm = {"floor": "floor", "shared": "total", "indep": "total_indep"}.get(arm, arm)
     out = []
-    for label, fname, fc in BANDS:
-        path = os.path.join(RESDIR, fname)
-        if not os.path.exists(path):
+    for label, efname, afname, fc in BANDS:
+        epath = os.path.join(RESDIR, efname)
+        apath = os.path.join(RESDIR, afname)
+        if not (os.path.exists(epath) and os.path.exists(apath)):
             continue
-        e = np.load(path)
-        rec = dict(label=label, fc=fc)
+        e, a = np.load(epath), np.load(apath)
+        rec = dict(label=label, fc=fc, arm=arm)
         rec["hi"] = float(np.median(np.sqrt(e["drift_cr_p_true"])))
         for s_ in strategies:
-            if f"{s_}_cr_p_true" not in e:
+            key = f"{s_}_cr_{arm}_{nmodes}"
+            if key not in a:
+                if arm == "total_indep":
+                    print(f"!! {afname} has no '{arm}' arm for {s_} -- that "
+                          "ablation predates the independent-white arms",
+                          flush=True)
                 continue
             rec[s_] = dict(
-                fg=float(np.median(np.sqrt(e[f"{s_}_cr_p_clean_auto_{nmodes}"]))),
-                ratio=float(np.median(np.sqrt(
-                    e[f"{s_}_cr_p_clean_auto_{nmodes}"]
-                    / e[f"{s_}_cr_p_mapmade"]))))
+                fg=float(np.median(np.sqrt(a[key]))),
+                ratio=float(np.median(np.sqrt(a[key] / a[f"{s_}_cr_p_hi"]))))
         out.append(rec)
     return out
 
@@ -889,7 +929,10 @@ def _freq_panel(ax, bands, x, key, ylab, title):
                     xytext=(8, 0), ha="left", va="center", color=INK,
                     fontsize=10.1, linespacing=1.45)
     else:
-        for s_, style in P.MONO_STRAT.items():   # two series -> black
+        # one colour per strategy, matching hi_kmodes and hi_sufficiency;
+        # the markers stay distinct so greyscale still separates them
+        for s_ in ("drift", "raster"):
+            style = P.PAPER_STRAT[s_]
             if s_ not in bands[0]:
                 continue
             y = [b[s_][key] for b in bands]
@@ -899,12 +942,6 @@ def _freq_panel(ax, bands, x, key, ylab, title):
             ax.annotate(s_, (x[-1], y[-1]), textcoords="offset points",
                         xytext=(8, 0), va="center", color=style["color"],
                         fontsize=10.8, fontweight="semibold")
-            fac = y[0] / y[-1]
-            ax.annotate(f"{fac:.0f}$\\times$" if fac >= 10
-                        else f"{fac:.1f}$\\times$",
-                        (x[-1], y[-1]), textcoords="offset points",
-                        xytext=(8, 13), va="center", color=MUTED,
-                        fontsize=9.7)
         if key == "ratio":
             ax.axhline(1.0, color=INK, lw=1.4, zorder=3)
             ax.annotate("HI level", (x[0], 1.0),
@@ -957,6 +994,29 @@ def fig_frequency(bands, text=None):
     plt.show()
     return P._save(fig, "hi_frequency_design")
 
+def respaced_drift_point():
+    """The 850-900 MHz drift with its ladder re-spaced to contiguous coverage.
+
+    The fixed 52/50/48 ladder is 1.9913 deg, which is 1.247 beams at 875 MHz --
+    the strips no longer overlap, and that is why the drift's ratio climbs again
+    in the top band rather than continuing to improve. ``drift875`` covers the
+    IDENTICAL declination span with four strips at 0.831 beams, so the footprint,
+    the common patch and the HI realisation are unchanged and the only variable
+    is the gap. Verified: the shared strategies are bit-identical between
+    `f875pin` and `f875space`.
+
+    Returns None if that run is not present, so the figure still draws without it.
+    """
+    path = os.path.join(RESDIR, "hi_ablation_f875space_f850_900_nc32_ns128.npz")
+    if not os.path.exists(path):
+        return None
+    d = np.load(path, allow_pickle=True)
+    if "drift875_cr_p_hi" not in d:
+        return None
+    return float(np.median(np.sqrt(d[f"drift875_cr_floor_{NMODES}"]
+                                   / d["drift875_cr_p_hi"])))
+
+
 def fig_frequency_ratio(bands, text=None):
     """The quotient panel alone -- the same data as fig_frequency's third panel.
 
@@ -973,6 +1033,26 @@ def fig_frequency_ratio(bands, text=None):
     _freq_panel(ax, bands, x, "ratio",
                 f"residual / HI   ({NMODES} modes removed)",
                 None)
+    # The re-spaced drift at the top band. Drawn as a single star rather than a
+    # fourth curve: it is one configuration at one band, not a trend, and the
+    # point it makes is that the upturn is the LADDER, not the frequency.
+    y_re = respaced_drift_point()
+    if y_re is not None and abs(x[-1] - 875.0) < 1.0:
+        # The one coloured mark on an otherwise monochrome figure: it is not a
+        # third series, it is a single annotated configuration. It sits close to
+        # the raster marker, so keep it small enough that both stay readable --
+        # the colour alone separates them, no outline needed.
+        ax.plot([x[-1]], [y_re], marker=P.PAPER_STRAT["drift875"]["marker"],
+                ms=12.5, color=P.PAPER_STRAT["drift875"]["color"], zorder=7,
+                linestyle="none")
+        ax.annotate("4 strips, 0.83 beams\n(same span)",
+                    (x[-1], y_re), textcoords="offset points",
+                    xytext=(-16, -16), ha="right", va="top",
+                    color=P.PAPER_STRAT["drift875"]["color"],
+                    fontsize=9.8, linespacing=1.4,
+                    arrowprops=dict(arrowstyle="-", lw=0.7,
+                                    color=P.PAPER_STRAT["drift875"]["color"],
+                                    shrinkA=1, shrinkB=7))
     fig.tight_layout()
     plt.show()
     return P._save(fig, "hi_frequency_ratio")
@@ -982,6 +1062,103 @@ def fig_frequency_ratio(bands, text=None):
 # ---------------------------------------------------------------------------
 # Would cleaning harder help?
 # ---------------------------------------------------------------------------
+
+# Radiometer white-noise variance for one 1.5625 MHz channel in 2 s, which is
+# what the draft now quotes. The simulations were run at 2.5e-6 (ska_hi_experiment
+# .WHITE_VAR), so the residuals are RESCALED, not re-simulated -- re-simulating at
+# the matched value is Paper II. Only the white part may be rescaled: 1/f is a
+# gain fluctuation and does not know about the radiometer equation.
+WHITE_VAR_MATCHED = 3.2e-7
+WHITE_VAR_AS_RUN = 2.5e-6
+WHITE_SCALE = float(np.sqrt(WHITE_VAR_MATCHED / WHITE_VAR_AS_RUN))   # 0.35777
+
+
+def noise_matched(abl, strategy, nmodes, variant="cr_"):
+    """Noise residual POWER at the matched white level, per k_par bin.
+
+    ``noiseonly_indep`` is ``(1 + g)(1 + w_ind)``: it carries the 1/f gain as
+    well as the white noise, so rescaling the whole arm would rescale 1/f too.
+    Split them first, assuming the two are uncorrelated (they are drawn
+    independently, and the g*w cross term is ~1e-6 relative):
+
+        white^2 = noise^2 - (1/f)^2,
+        matched = WHITE_SCALE^2 * white^2 + (1/f)^2.
+
+    The difference from rescaling the arm whole is under 0.02% at every band --
+    1/f is 0.03-0.5% of the noise amplitude -- so this is a correctness point
+    rather than a numerical one. It stops being either if 1/f ever grows.
+    """
+    k = f"{strategy}_{variant}"
+    noise = abl[f"{k}noiseonly_indep_{nmodes}"]
+    gain = abl[f"{k}gainonly_{nmodes}"]
+    white = np.clip(noise - gain, 0.0, None)
+    return WHITE_SCALE ** 2 * white + gain
+
+
+def fig_noise_terms(text=None):
+    """What survives the clean: the floor, independent white noise, and 1/f.
+
+    The point is the DIFFERENT SLOPES, not the levels. PCA removes 1/f with the
+    foreground -- it is a smooth multiplicative gain, so it lives in the same
+    few spectral modes -- while independent thermal noise is full rank in
+    frequency and the clean barely touches it. The floor falls in between,
+    because its null space is chromatic but low rank.
+
+    So the noise term that matters is the one that integrates down with time,
+    and the term that does not integrate down is the one the clean cannot
+    reach. Only the three-strip drift and the raster are drawn; adding the
+    twelve-strip ladder triples the lines for no extra argument.
+    """
+    path = os.path.join(RESDIR, "hi_ablation_amp350_f350_400_nc32_ns64.npz")
+    if not os.path.exists(path):
+        return None
+    a = np.load(path)
+    nm = [int(v) for v in a["nmodes_grid"]]
+    fig, ax = plt.subplots(figsize=P._figsize("hi_noise_terms", (5.4, 4.6)))
+    P._tidy(ax); ax.set_yscale("log")
+    # "all noise", not "white noise": the arm is (1 + g)(1 + w_ind) and so
+    # carries the 1/f term too. White is 99.5%+ of it, but the old label was
+    # the same mis-pairing that fig_ablation had to be corrected for.
+    ARMS = (("floor", "-", "beam + prior floor"),
+            ("noise", (0, (5, 2.5)), "all noise (white independent)"),
+            ("gainonly", (0, (1, 1.8)), "1/f gain"))
+    for s_ in ("drift", "raster"):
+        st = P.PAPER_STRAT[s_]
+        for arm, ls, _lab in ARMS:
+            p_hi = a[f"{s_}_cr_p_hi"]
+            y = [float(np.median(np.sqrt(
+                (noise_matched(a, s_, k) if arm == "noise"
+                 else a[f"{s_}_cr_{arm}_{k}"]) / p_hi))) for k in nm]
+            ax.plot(nm, y, color=st["color"], ls=ls, marker=st["marker"],
+                    ms=5, mfc=SURFACE, mew=1.5, lw=1.9, zorder=4)
+    ax.axhline(1.0, color=MUTED, lw=1.2, alpha=0.55, zorder=2)
+    ax.annotate("HI", (nm[-1], 1.0), textcoords="offset points",
+                xytext=(6, 0), va="center", color=MUTED, fontsize=9.6)
+    ax.set_xlabel("PCA modes removed")
+    ax.set_ylabel("residual / HI   (amplitude)", fontsize=10.6)
+    ax.set_xticks(nm); ax.set_xlim(0.4, nm[-1] + 1.4)
+    # Rescaling the white noise to the radiometer level pulled the top of the
+    # plot down by half a decade, which left the lower-left legend sitting on
+    # the raster's 1/f line. Half a decade of floor under the lowest point
+    # gives it back its own space without moving it.
+    ax.set_ylim(bottom=ax.get_ylim()[0] / 3.2)
+    leg = ax.legend(handles=[Line2D([], [], color=INK, ls=ls, lw=1.9, label=lab)
+                             for _a, ls, lab in ARMS],
+                    loc="lower left", fontsize=9.2, frameon=True,
+                    framealpha=0.92, edgecolor="none", labelspacing=0.3)
+    leg.get_frame().set_facecolor(SURFACE)
+    ax.add_artist(leg)
+    ax.legend(handles=[Line2D([], [], color=P.PAPER_STRAT[s_]["color"], lw=2.2,
+                              marker=P.PAPER_STRAT[s_]["marker"], ms=5,
+                              mfc=SURFACE, mew=1.5,
+                              label=P.PAPER_STRAT[s_]["label"])
+                       for s_ in ("drift", "raster")],
+              loc="upper right", fontsize=9.2, frameon=False,
+              labelspacing=0.3)
+    fig.tight_layout()
+    plt.show()
+    return P._save(fig, "hi_noise_terms")
+
 
 def fig_cleaning_depth(text=None):
     """The first question asked of any floor-limited result: clean deeper?
@@ -994,14 +1171,27 @@ def fig_cleaning_depth(text=None):
     is an optimal cleaning depth; if it falls monotonically, the limit is not
     the cleaning.
 
-    Both bands, so the answer can be seen to be band-dependent or not.
+    All four bands, so the answer can be seen to be band-dependent or not.
+
+    The residual is the NOISELESS floor (2026-10-07): the question "is another
+    mode worth removing?" is about the term that does not integrate down, and
+    taking the total here would fold in a white-noise model that is itself under
+    revision. T still comes from the experiment npz, which is the only place it
+    is stored; it moves by at most 0.8% with the prior, so the nearest matching
+    run is close enough.
     """
-    runs = [("350$-$400", "hi_experiment_matched_f350_400_nc32_ns64.npz",
+    runs = [("350$-$400", "hi_ablation_amp350_f350_400_nc32_ns64.npz",
+             "hi_experiment_pin350_f350_400_nc32_ns64.npz",
              ("drift", "drift12", "raster"), "-"),
-            ("500$-$550", "hi_experiment_f500_f500_550_nc32_ns128.npz",
+            ("500$-$550", "hi_ablation_amp500_f500_550_nc32_ns128.npz",
+             "hi_experiment_pin500_f500_550_nc32_ns128.npz",
              ("drift", "raster"), (0, (1, 2.4))),
-            ("675$-$725", "hi_experiment_f700_f675_725_nc32_ns128.npz",
-             ("drift", "raster"), (0, (4, 2)))]
+            ("675$-$725", "hi_ablation_amp700_f675_725_nc32_ns128.npz",
+             "hi_experiment_matched700b_f675_725_nc32_ns128.npz",
+             ("drift", "drift12m", "raster"), (0, (4, 2))),
+            ("850$-$900", "hi_ablation_f875pin_f850_900_nc32_ns128.npz",
+             "hi_experiment_f875pin_f850_900_nc32_ns128.npz",
+             ("drift", "raster"), (0, (5, 1.5, 1, 1.5)))]
     # 3 strategies, so hue is kept -- but each carries its own marker, and
     # linestyle is spent on the BAND, which is the second dimension here.
 
@@ -1010,29 +1200,31 @@ def fig_cleaning_depth(text=None):
     # the extra mode was worth removing. Dropped 2026-09-28.
     fig, axB = plt.subplots(figsize=P._figsize("hi_cleaning_depth", (7.4, 5.2)))
     seen, strat_seen = [], []
-    for band, fname, strategies, ls in runs:
-        path = os.path.join(RESDIR, fname)
-        if not os.path.exists(path):
+    for band, afile, efile, strategies, ls in runs:
+        apath = os.path.join(RESDIR, afile)
+        epath = os.path.join(RESDIR, efile)
+        if not (os.path.exists(apath) and os.path.exists(epath)):
             continue
-        e = np.load(path)
-        nm = [int(v) for v in e["nmodes_grid"]]
+        a, e = np.load(apath), np.load(epath)
+        nm = [int(v) for v in a["nmodes_grid"]]
         for s_ in strategies:
-            if f"{s_}_cr_tf_{nm[0]}" not in e:
+            if f"{s_}_cr_tf_{nm[0]}" not in e or f"{s_}_cr_floor_{nm[0]}" not in a:
                 continue
             ratio = [float(np.median(np.sqrt(
-                e[f"{s_}_cr_p_clean_auto_{k}"] / e[f"{s_}_cr_p_mapmade"])))
-                for k in nm]
+                a[f"{s_}_cr_floor_{k}"] / a[f"{s_}_cr_p_hi"]))) for k in nm]
             tf = [float(np.median(e[f"{s_}_cr_tf_{k}"])) for k in nm]
             net = [r / t for r, t in zip(ratio, tf)]
-            st = P.STRAT_ALL[s_]
+            st = P.PAPER_STRAT[s_]
             c, mk = st["color"], st["marker"]
             axB.plot(nm, net, color=c, ls=ls, marker=mk, ms=6, mfc=SURFACE,
                      mew=1.8, zorder=4)
             seen.append((band, ls))
-            if s_ not in [t[0] for t in strat_seen]:
+            # dedupe on the LABEL, not the key: drift12 and drift12m are the
+            # same row of the paper and share a label
+            if st['label'] not in [P.PAPER_STRAT[t[0]]['label'] for t in strat_seen]:
                 strat_seen.append((s_, c, mk))
     for ax, ylab, title in (
-            (axB, "residual / HI that SURVIVES the clean",
+            (axB, "floor / HI that SURVIVES the clean",
              "What deeper cleaning costs — and whether it is worth it"),):
         P._tidy(ax); ax.set_yscale("log")
         ax.axhline(1.0, color=INK, lw=1.5, zorder=3)
@@ -1048,7 +1240,9 @@ def fig_cleaning_depth(text=None):
     # both dimensions now have to be legended in the one panel
     leg = axB.legend(handles=[Line2D([], [], color=c, lw=2.4, marker=mk, ms=6,
                                      mfc=SURFACE, mew=1.8, label=s_)
-                              for s_, c, mk in strat_seen],
+                              for s_, c, mk in
+                              [(P.PAPER_STRAT[x]["label"], c, mk)
+                               for x, c, mk in strat_seen]],
                      loc="upper right", fontsize=10.1, title="strategy",
                      title_fontsize=9.7, labelspacing=0.35)
     axB.add_artist(leg)
@@ -1065,7 +1259,7 @@ def fig_cleaning_depth(text=None):
              "the beam + prior floor, not the cleaning. Common resolution, "
              "interior pixels.",
              x=0.012, y_title=1.05, y_sub=0.975, override=text)'''
-    fig.tight_layout(rect=(0, 0, 1, 0.90))
+    fig.tight_layout(rect=(0, 0.06, 1, 1.0))
     plt.show()
     return P._save(fig, "hi_cleaning_depth")
 

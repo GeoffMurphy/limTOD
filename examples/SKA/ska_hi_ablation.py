@@ -49,10 +49,22 @@ if _HERE not in sys.path:
 
 import ska_hi_experiment as X
 import ska_hi_analysis as A
+import ska_hi_prior as prior
 from ska_common import gdsm_equatorial_sky_model
 from ska_hi_mock import build_hi_cube, project_to_healpix
 
 ARMS = ("floor", "total", "noiseonly", "gainonly", "whiteonly")
+# Independent-white arms, added 2026-10-05. simulate_foreground re-seeds with
+# p["seed"] -- which depends on the PASS, not the frequency -- and calls
+# generate_TOD one channel at a time, so every channel draws the IDENTICAL
+# white realisation. Verified empirically: the ch0/ch1 TOD ratio scatters
+# 1.2e-4 where independent draws would give 2.2e-3. A common 1/f gain across
+# the band is physically right for one receiver and is kept; identical thermal
+# noise is not, and because it follows the sky's smooth spectrum PCA removes
+# most of it, so the published post-clean noise is optimistic. These arms
+# redraw the white part per channel and change nothing else.
+INDEP_ARMS = ("noiseonly_indep", "total_indep")
+ALL_ARMS = ARMS + INDEP_ARMS
 MARGIN_DEG = 3.0
 
 
@@ -63,9 +75,30 @@ def main():
     ap.add_argument("--tag", default="",
                     help="suffix for the output filename; required for any "
                          "strategy set other than the published drift+raster")
+    ap.add_argument("--pin-prior", action="store_true",
+                    help="solve every strategy with the BAND's reference "
+                         "sigma_p (ska_hi_prior: the three-strip drift's own "
+                         "patch, per channel) instead of each strategy's own "
+                         "patch variance. Without it a wider footprint picks "
+                         "up more sky structure, is handed a looser prior and "
+                         "is penalised for its extent -- which also breaks the "
+                         "paper's stated condition that modes per unit sky is "
+                         "comparable only at fixed sigma_p. The reference "
+                         "strategy is solved at its own variance either way, "
+                         "so its numbers must reproduce the unpinned run; that "
+                         "is the control.")
     args = ap.parse_args()
     if not args.tag and sorted(args.strategies) != ["drift", "raster"]:
         sys.exit("refusing to overwrite the published ablation npz: pass --tag")
+    if args.pin_prior:
+        if not args.tag:
+            sys.exit("--pin-prior changes every number: pass --tag")
+        if prior.REF_STRATEGY not in args.strategies:
+            sys.exit(f"--pin-prior needs '{prior.REF_STRATEGY}' in "
+                     f"--strategies ({' '.join(args.strategies)}): it defines "
+                     "the band reference, and including it also keeps the "
+                     "common patch and the HI realisation comparable")
+        prior.PINNED = True
 
     freqs = X.channel_freqs()
     cfg = X.band_config()
@@ -84,13 +117,28 @@ def main():
     look = {p: i for i, p in enumerate(union)}
     fg = {f: gdsm_equatorial_sky_model(freq=f, nside=X.NSIDE) for f in freqs}
 
+    # Build the band reference now if it does not exist: it needs exactly the
+    # operators already loaded here, so this costs nothing extra.
+    if args.pin_prior:
+        if prior.load() is None:
+            prior.build(ops[prior.REF_STRATEGY])
+        _ref = prior.load(required=True)
+        _sp = np.sqrt(_ref["sigma_p2"])
+        print(f"prior pinned to the band reference ({_ref['ref_strategy']}): "
+              f"sigma_p {_sp.min():.4f}-{_sp.max():.4f} K", flush=True)
+
     out = dict(nmodes_grid=np.asarray(X.__dict__.get("NMODES_GRID",
                                                      (1, 2, 3, 4, 6, 8, 10))),
-               common=common, interior=interior, margin_deg=MARGIN_DEG)
+               common=common, interior=interior, margin_deg=MARGIN_DEG,
+               arms=np.array(ALL_ARMS, dtype=object),
+               pin_prior=bool(args.pin_prior),
+               pin_prior_to=prior.REF_STRATEGY if args.pin_prior else "")
     for strategy in args.strategies:
         g, w = X.replay_noise(strategy)
+        pass_seeds = [int(p["seed"]) for p in X.STRATEGIES[strategy]["pointings"]()]
+        prior.set_strategy(strategy, ops[strategy])
         t0 = time.time()
-        cubes = {a: [] for a in ARMS}
+        cubes = {a: [] for a in ALL_ARMS}
         hi_mm = []
         for i, f in enumerate(freqs):
             mm = ops[strategy][i]
@@ -103,25 +151,39 @@ def main():
                      for j, t in enumerate(tods["TOD_group"])]
             hitod = [np.asarray(o) @ hi for o in mm.Tsys_operators]
             mu = np.full_like(truth, float(np.mean(truth)))
+            # independent white, one draw per (pass, channel). SeedSequence
+            # rather than hash(): reproducible, in range, and no collisions.
+            w_ind = [np.random.default_rng(
+                        np.random.SeedSequence([sd, i])
+                     ).normal(0.0, np.sqrt(X.WHITE_VAR), size=len(w[j]))
+                     for j, sd in enumerate(pass_seeds)]
 
             cubes["floor"].append(
                 A.solve(mm, [c + h for c, h in zip(clean, hitod)],
-                        truth, mu)[sel])
+                        truth, mu, freq_mhz=f)[sel])
             cubes["total"].append(
                 A.solve(mm, [(c + h) * (1 + g[j]) * (1 + w[j])
                              for j, (c, h) in enumerate(zip(clean, hitod))],
-                        truth, mu)[sel])
-            quiet = A.solve(mm, clean, truth, mu)[sel]
+                        truth, mu, freq_mhz=f)[sel])
+            quiet = A.solve(mm, clean, truth, mu, freq_mhz=f)[sel]
             noisy = A.solve(mm, [c * (1 + g[j]) * (1 + w[j])
-                                 for j, c in enumerate(clean)], truth, mu)[sel]
+                                 for j, c in enumerate(clean)], truth, mu, freq_mhz=f)[sel]
             gainy = A.solve(mm, [c * (1 + g[j])
-                                 for j, c in enumerate(clean)], truth, mu)[sel]
+                                 for j, c in enumerate(clean)], truth, mu, freq_mhz=f)[sel]
             whitey = A.solve(mm, [c * (1 + w[j])
-                                  for j, c in enumerate(clean)], truth, mu)[sel]
+                                  for j, c in enumerate(clean)], truth, mu, freq_mhz=f)[sel]
             cubes["noiseonly"].append(noisy - quiet)
             cubes["gainonly"].append(gainy - quiet)
             cubes["whiteonly"].append(whitey - quiet)
-            hi_mm.append(A.response(mm, hi, truth)[sel])
+            noisy_i = A.solve(mm, [c * (1 + g[j]) * (1 + w_ind[j])
+                                   for j, c in enumerate(clean)],
+                              truth, mu, freq_mhz=f)[sel]
+            cubes["noiseonly_indep"].append(noisy_i - quiet)
+            cubes["total_indep"].append(
+                A.solve(mm, [(c + h) * (1 + g[j]) * (1 + w_ind[j])
+                             for j, (c, h) in enumerate(zip(clean, hitod))],
+                        truth, mu, freq_mhz=f)[sel])
+            hi_mm.append(A.response(mm, hi, truth, freq_mhz=f)[sel])
             if (i + 1) % 8 == 0:
                 print(f"  [{strategy}] {i + 1}/{len(freqs)} "
                       f"({time.time() - t0:.0f} s)", flush=True)
@@ -155,14 +217,14 @@ def main():
             out[f"{strategy}_{tag}k"] = k
             out[f"{strategy}_{tag}p_hi"] = p_hi
             for nm in out["nmodes_grid"]:
-                for arm in ARMS:
+                for arm in ALL_ARMS:
                     cleaned = A.pca_clean(arm_cubes[arm][:, sel_pix], int(nm))
                     _, p = A.pk_par(cleaned, dr_mpc=dr)
                     out[f"{strategy}_{tag}{arm}_{nm}"] = p
                 print(f"  [{strategy} {tag or 'as-run':6s}] nmodes={nm}: "
                       + ", ".join(
                           f"{arm} {np.sqrt(np.median(out[f'{strategy}_{tag}{arm}_{nm}'] / p_hi)):.1f}x"
-                          for arm in ARMS), flush=True)
+                          for arm in ALL_ARMS), flush=True)
 
     os.makedirs(os.path.join(_HERE, "results"), exist_ok=True)
     _tag = f"_{args.tag}" if args.tag else ""

@@ -71,6 +71,7 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 import ska_hi_experiment as X
+import ska_hi_prior as prior
 from ska_common import (SKA_LAT, SKA_LON, SKA_HGT, ska_beam_func,
                         ska_beam_fwhm_deg, gdsm_equatorial_sky_model,
                         drift_scan_night)
@@ -142,7 +143,7 @@ def mode_count(mm):
         term = A.T @ (A / var[:, None])
         M = term if M is None else M + term
     w = np.maximum(np.linalg.eigvalsh(M)[::-1], 0.0)
-    s_inv = 1.0 / max(float(np.std(truth)), 1e-3) ** 2
+    s_inv = prior.s_inv(FREQ_MHZ, truth, label='ladder')
     area = len(pix) * hp.nside2pixarea(X.NSIDE, degrees=True)
     return dict(n_eff=float(np.sum(w / (w + s_inv))),
                 n_1pct=int((w / w[0] > 0.01).sum()),

@@ -52,6 +52,7 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 import ska_hi_experiment as X
+import ska_hi_prior as prior
 import ska_hi_analysis as A
 from ska_common import gdsm_equatorial_sky_model
 
@@ -87,7 +88,7 @@ def main():
         # The prior the solves actually use: flat and diagonal at the patch
         # variance. Being a multiple of the identity it shifts every eigenvalue
         # equally, so tr(WA) follows directly in the eigenbasis.
-        s_inv = 1.0 / max(float(np.std(truth)), 1e-3) ** 2
+        s_inv = prior.s_inv(freqs[ch], truth, label=strategy)
         n_eff = float(np.sum(w / (w + s_inv)))
         area = len(pix) * hp.nside2pixarea(X.NSIDE, degrees=True)
         part = float(w.sum() ** 2 / (w ** 2).sum())

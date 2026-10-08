@@ -49,6 +49,7 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 import ska_hi_experiment as X
+import ska_hi_prior as prior
 from ska_common import gdsm_equatorial_sky_model
 from ska_hi_mock import (HIBandConfig, build_hi_cube, project_to_healpix,
                          comoving_distances)
@@ -157,7 +158,7 @@ def common_patch(operator_sets):
 PRIOR_VAR_SCALE = 1.0
 
 
-def _solve_args(mm, fg_truth_patch):
+def _solve_args(mm, fg_truth_patch, freq_mhz=None):
     """Noise weights and prior, held identical across every solve.
 
     ``noise_variance`` is the series' truth-dependent weighting (radiometer
@@ -165,21 +166,26 @@ def _solve_args(mm, fg_truth_patch):
     ~1e-5 of the foreground, so it does not perturb the weights.
     """
     nv_floor = X.WHITE_VAR * (1e-3 * float(np.mean(fg_truth_patch)))**2
+    # sigma_p comes from ska_hi_prior, which returns this patch's own variance
+    # unless the run opted in to the band reference. PRIOR_VAR_SCALE still
+    # multiplies it, so the prior sweep is unaffected either way.
+    if prior.PINNED and freq_mhz is None:
+        raise ValueError("prior is pinned but this solve was given no "
+                         "freq_mhz, so the reference channel is unknown")
     return dict(
         Tsky_prior_inv_cov_diag=np.ones_like(fg_truth_patch)
-        / (PRIOR_VAR_SCALE
-           * max(float(np.std(fg_truth_patch)), 1e-3)**2),
+        / (PRIOR_VAR_SCALE * prior.sigma2(freq_mhz, fg_truth_patch)),
         noise_variance=[X.WHITE_VAR * (np.asarray(o) @ fg_truth_patch)**2
                         + nv_floor for o in mm.Tsys_operators],
         regularization=1e-12, return_full_cov=False)
 
 
-def solve(mm, tod_group, fg_truth_patch, prior_mean):
+def solve(mm, tod_group, fg_truth_patch, prior_mean, freq_mhz=None):
     return mm(TOD_group=tod_group, dtime=X.DT, Tsky_prior_mean=prior_mean,
-              **_solve_args(mm, fg_truth_patch))[0]
+              **_solve_args(mm, fg_truth_patch, freq_mhz))[0]
 
 
-def response(mm, sky_patch, fg_truth_patch):
+def response(mm, sky_patch, fg_truth_patch, freq_mhz=None):
     """Map-domain response ``W A s`` to a sky component.
 
     The map-maker is a Wiener filter, affine in the data: ``solve(d) = W d +
@@ -189,7 +195,7 @@ def response(mm, sky_patch, fg_truth_patch):
     ``validate_linearity`` checks this identity numerically.
     """
     tod = [np.asarray(o) @ sky_patch for o in mm.Tsys_operators]
-    return solve(mm, tod, fg_truth_patch, np.zeros_like(sky_patch))
+    return solve(mm, tod, fg_truth_patch, np.zeros_like(sky_patch), freq_mhz)
 
 
 # ---------------------------------------------------------------------------
@@ -278,13 +284,14 @@ def transfer_function(data_cube, hi_mocks, nmodes, dr_mpc, verbose=True):
 # Validation
 # ---------------------------------------------------------------------------
 
-def validate_linearity(mm, fg_truth_patch, tod_group, sky_patch, prior_mean):
+def validate_linearity(mm, fg_truth_patch, tod_group, sky_patch, prior_mean,
+                       freq_mhz=None):
     """Check ``solve(d + A s) - solve(d) == response(s)`` to round-off."""
-    base = solve(mm, tod_group, fg_truth_patch, prior_mean)
+    base = solve(mm, tod_group, fg_truth_patch, prior_mean, freq_mhz)
     tod_inj = [np.asarray(t) + np.asarray(o) @ sky_patch
                for t, o in zip(tod_group, mm.Tsys_operators)]
-    both = solve(mm, tod_inj, fg_truth_patch, prior_mean)
-    direct = response(mm, sky_patch, fg_truth_patch)
+    both = solve(mm, tod_inj, fg_truth_patch, prior_mean, freq_mhz)
+    direct = response(mm, sky_patch, fg_truth_patch, freq_mhz)
     diff = np.max(np.abs((both - base) - direct))
     scale = np.max(np.abs(direct))
     return diff / scale

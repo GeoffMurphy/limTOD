@@ -927,104 +927,118 @@ beams, an 8.7% mode-density change) came out inconclusive, and it is the bar
 any future sub-20% claim has to clear.
 
 
-### PICK UP HERE — state as of 2026-09-23 afternoon
+### PICK UP HERE — state at 2026-10-01
 
-**All queued compute is done.** The 500-550 MHz band (Ilifu job 13858845)
-completed 2026-09-23, both npz files are pulled into `results/`, and all eight
-design figures have been redrawn from local cache. Nothing is running on
-Ilifu. See "The 500-550 MHz point" above for what it showed.
+**Checked 2026-10-01, 7 h 45 min in. Two done, one still running.**
 
-To redraw everything after any change:
+| job | state | outcome |
+|---|---|---|
+| **13920752** density confirmation | COMPLETED 2 h 16 min | **75.72 modes/100 deg^2 at 0.579 beams, 1.08% below the raster's 76.55** -- a tighter match than drift12 managed at 350 MHz (2.2%). Pulled to `results/hi_ladder_f700d_ns128.npz`. |
+| **13920776** warm array, drift12m | COMPLETED 2 h 31 min | caches built |
+| **13920795** `matched700b` | **RUNNING** | see below |
+
+**The validity check has ALREADY PASSED.** The running job's log shows the
+drift arm finishing on **171 interior pixels** -- exactly the count of the
+published f700 run, not the 57 that made `matched700` void. The wider
+footprint did what it was meant to, so this run is usable. Its drift arm also
+gives residual/HI = 16.6x at 4 modes, against the published 16.3x: consistent,
+and not identical only because the HI realisation differs.
+
+**TIMING RISK, and it is the thing to check first.** At 7 h 45 min the job had
+done drift (1872 s) and was 24/32 channels into drift12m at ~1052 s/channel --
+12 strips over a 13.2 deg patch is far more solve than anything run before.
+Extrapolating: ~2.3 h more for drift12m, ~0.5 h for raster, then the ablation.
+Total plausibly 13-16 h against a **16 h wall limit**.
+
+`run_hi_freq.sbatch` runs the experiment and the ablation as two separate
+python calls, so a timeout would leave the experiment npz written and **no
+ablation** -- and the ablation is the half that separates floor from total,
+i.e. the half the matched-density question needs. So:
 
 ```bash
-/home/geoff/limTOD/.venv/bin/python ska_hi_design.py   # all 8 figures, ~1 min
+ssh ilifu "bash -lc 'sacct -j 13920795 --format=State,Elapsed'"
+ssh ilifu "bash -lc 'ls -la ~/ska/limTOD-src/examples/SKA/results/*matched700b*'"
 ```
 
-**Writing, not computing, is what is left.** A correction pass went through
-`paper/ska_drift/main.tex` on 2026-09-23:
+If the experiment landed but the ablation did not, re-run the ablation alone
+rather than the whole job -- the caches and the experiment npz are already
+there:
 
-- the ablation caption's `0.2%` / `~38x` were *as-run* values, but the figure
-  has drawn common resolution since 2026-08-26 -- now a few per cent, and
-  52x (drift) / 10x (raster) below the floor in amplitude;
-- the residual table's last row said **"Cross-linking gain"** and was in fact
-  the drift/raster ratio. The two strategies also differ in mode density
-  (14.6 against 22.3 per 100 deg²), so it confounds the two. Relabelled
-  "Drift / raster", with the matched-density 9.3x in the caption;
-- the abstract and discussion skeletons now carry the band qualifier and the
-  ~600 MHz crossover.
+```bash
+sbatch run_ablation.sbatch matched700b drift drift12m raster   # check its env sources freq_env.sh
+```
 
-`ANALYSIS_LOG.md` keeps its as-run numbers under a dated supersession note --
-they were correct when measured, and a chronological log should not be
-rewritten. Only its Figure 3 caption changed, since that image regenerates.
+**Pull when they land:**
 
-`main.tex` also now finds figures directly: `\graphicspath` searches
-`../../figures/` (where both plotting scripts write) **first**, then the
-paper-local `figures/` as a fallback, so regenerating a figure reaches the
-paper with no copy step. The local copies are 2026-09-21 snapshots, kept only
-so the build survives a figure that stops being generated; `main.fls` confirms
-all six figures now resolve from `../../figures/`. Both directories are
-gitignored (bare `figures/` in the root `.gitignore`), so a clean checkout
-needs the plotting scripts run before it will build.
+```bash
+cd ~/limTOD/examples/SKA
+for f in hi_ladder_f700d_ns128.npz \
+         hi_experiment_matched700b_f675_725_nc32_ns128.npz \
+         hi_ablation_matched700b_f675_725_nc32_ns128.npz; do
+  ssh ilifu "bash -lc 'cat ~/ska/limTOD-src/examples/SKA/results/$f'" > results/$f
+done
+```
 
-**The two venvs are not interchangeable**, which cost a wrong header comment:
-`ska_hi_plots.py` builds an HI cube and needs `pyccl`, which only
-`/home/geoff/gibbs_venv_312` has. `ska_hi_design.py` only reads cached `.npz`
-and runs under either. `figures/hi_ablation.png` had been missing entirely
-until `ska_hi_plots.py` was re-run on 2026-09-23.
+**CHECK THIS FIRST, before reading any floor number.** The previous attempt
+(`matched700`, drift6m) was void because its 2.58 deg footprint became the
+limiting one and the interior collapsed to 57 px over 0.60 deg — 0.29 beams.
+`drift12m` spans 13.16 deg, so the interior should be back near the **171 px**
+of the published f700 run:
 
-**Figure set reworked for a survey-design paper (2026-09-23).** Four figures
-out, eight in, leaving ten:
+```python
+import numpy as np
+e = np.load("results/hi_experiment_matched700b_f675_725_nc32_ns128.npz")
+print(int(np.sum(e["interior"])))     # want ~171, NOT ~57
+```
 
-| out | why |
-|---|---|
-| `hi_rank` + `hi_eigenvectors` | both subsumed by `hi_chromatic`, whose three panels are rank, eigenvectors **and** the principal angles between the floor and HI subspaces -- the last being the actual argument, and the only one not previously drawn |
-| `hi_frequency_structure` | a 350 MHz diagnostic of *why the drift fails*; the design paper makes that point structurally (`hi_chromatic`) and across bands (`hi_frequency_design`) |
-| `hi_residual_vs_modes` | superseded by `hi_cleaning_depth`, same curve over three bands plus the net of signal loss |
+If it is not, the run is void for the same reason and must not be quoted.
 
-In, by section: `hi_ladder_geometry` (§2.3), `hi_priorvar` (§3),
-`hi_ladder` (§4), `hi_cleaning_depth` + `hi_realisations` (§6),
-`hi_chromatic` (§7), and a new **§Survey design** carrying `hi_design` and
-`hi_frequency_design`. Kept: `hi_transfer_function`, `hi_ablation`.
+**Then the question it answers:** at 350 MHz, matched mode density still leaves
+cross-linking worth 9.3x. At 675-725 MHz the drift beats the raster outright
+(16.3 against 38.0). Does the drift still lose at matched density where it wins
+overall? Read `drift12m_cr_floor_4 / raster_cr_floor_4` from the ablation.
+Ratios within the run are exact; do NOT compare against the published f700
+numbers, because three strategies in the union means a different HI realisation.
 
-**Layout bug, fixed.** mnras is two-column: `\textwidth` is 508 pt but the
-column is 244 pt, so every `\includegraphics[width=\textwidth]` inside a
-single-column `figure` overflowed by exactly 264 pt. All ten figures are now
-`figure*`, and `tab:modes` / `tab:residual` are `table*`. Overfull boxes went
-8 → 0. The paper is 7 pages.
+---
 
-**`fig_ladder` was being called without half its data.** `main()` assigned
-`lad_long` and never passed it, so `hi_ladder.png` stopped at N = 8 while its
-own subtitle claimed "does not saturate" and the docstring said "out to 20
-dishes". It now receives `hi_ladder_long_ns64.npz` (N up to 20) and the two
-measured floors (3 dishes 399.6x, 12 dishes 239.3x) as overlay points.
+**Everything else is committed and pushed.** `ska-drift-analysis` is at
+`d12b243` on GitHub, 0 commits ahead.
 
-**Figure tuning now lives in a notebook (2026-09-23).**
-`ska_hi_paper_figures.ipynb` holds all ten paper figures, each cell carrying
-the **real source** of its `fig_*` function (via `inspect.getsource`), so
-colours, labels and layout can be tuned in place. A `set_palette()` cell
-pushes colour changes into both modules as well as the notebook, so helpers
-like `_tidy` and `_title` follow. Every `fig_*` also takes `text=(title,
-subtitle)` to override headings without touching the body. Saved resolution is
-`P.STYLE["dpi"]` (200), not the notebook's `figure.dpi`, which is display only.
+**Three files are uncommitted**, all from the 2026-10-01 observable-sky fix:
+`HANDOFF.md`, `paper/ska_drift/main.tex`, `ska_hi_kmodes.py`. The fix replaced
+a hardcoded 41253 deg² (the full sphere) with the sky SKA-Mid can reach —
+30 717 deg² at el > 30 deg from the Karoo, derived from `SKA_LAT` with
+`EL_MIN_DEG` as the knob. No verdict in the figure changed; the label had
+overstated the available sky by a third.
 
-Verified 2026-09-23: all 27 cells run clean under `gibbs_venv_312` and
-reproduce all ten PNGs; the paper rebuilds from them at 7 pages.
+**Paper workflow changed 2026-09-29.** Geoff edits `main.tex` on **Overleaf**
+and copy-pastes changes across. So: keep editing the local file, but **hand him
+the LaTeX to paste** rather than assuming the local copy is what he is reading.
+A bundle was exported to `~/ska_drift_overleaf.zip` (verified to compile
+standalone, 11 pages). **Figures are generated and gitignored**, so any figure
+that changes must be re-uploaded to Overleaf separately — currently that means
+`hi_kmodes.png` (the line moved), `hi_maps.png` and `hi_cleaned.png`.
 
-`tools_regen_figures_notebook.py` regenerates the notebook from the scripts,
-resolving private helpers transitively (`fig_design` needs `_levers`,
-`_panel_levers`, `_panel_tradespace`). **It is destructive** -- one-way,
-script → notebook -- so tuning done in the notebook must be pasted back into
-the `.py` first.
+**A copy of the whole repo sits at `C:\Users\geoff\code\limTOD`** (2.1 GB,
+`.venv` excluded), made 2026-09-30 so Claude Science could read it from
+Windows. It is a snapshot, not a link — re-run the rsync to refresh it.
+`~/research_overview.md` describes this project plus SBI_2026, IM_Gibbs and
+SPHEREx_Gibbs for that purpose; it is not in any repository.
 
-**Notebook outputs ARE committed, deliberately** (Geoff, 2026-09-28). The
-file is ~1.5 MB, of which ~93% is base64 PNGs from cell runs, and each commit
-stores a fresh copy that git cannot delta-compress. Judged acceptable: a few MB
-total. Do not strip outputs or add a clear-output filter without asking.
+**Notebook hazard, seen twice.** `ska_hi_paper_figures.ipynb` is regenerated by
+`tools_regen_figures_notebook.py` whenever a figure changes, and a VSCode window
+holding an older copy will silently write it back. Git is the recoverable
+truth: `git checkout HEAD -- examples/SKA/ska_hi_paper_figures.ipynb`. Do not
+confuse it with `ska_hi_figures.ipynb`, which is the superseded 2026-09-23 set.
 
-**Two sources of truth is the cost.** Both the notebook and the scripts write
-to `figures/`, and whichever ran last owns the PNG. There is no guard against
-this; the convention is that the notebook is the live version during tuning
-and the scripts are updated when a change settles.
+
+
+> **Restored 2026-10-01.** The four sections below were dropped from the
+> working copy when the 2026-09-23 "PICK UP HERE" block was rewritten in
+> place; they are results records, not status, so they are back verbatim
+> from the last commit. Some of the matched-density story is now also
+> summarised in PICK UP HERE above.
 
 ### Matched density at 675-725 MHz: YES, and the prediction was wrong (2026-09-29)
 
@@ -1207,6 +1221,15 @@ So "raster is better" sharpens to: **the raster is within a factor of 5 of a
 useful cross-correlation and the drift is 4 000x away** -- in units a designer
 acts on, rather than the 9.3x ratio.
 
+> **SUPERSEDED 2026-10-01 -- do not quote this table.** The two auto rows are
+> wrong in kind: the floor is a bias there, so no area suffices and
+> `3.9e6`/`3.5e11` are only lower bounds that assume the floor's mean power is
+> known and subtracted. The cross rows now carry the cross-power's own sample
+> variance and a shot-noise term; see "Fig. 12 right panel rebuilt". Note also
+> that "4 000x" above is **vs now** -- 4 100x the 265 deg^2 simulated, NOT 4000x
+> the raster. The drift/raster ratio is **370x**. That column was misread into
+> the paper's abstract notes and has been corrected there.
+
 **Assumptions to state if this is quoted.** `r = 1` for the cross-correlation
 coefficient; Gaussian statistics; the patch-total `N_eff` used as if it were
 one k bin, which is optimistic (the per-bin version is the left panel and has
@@ -1361,6 +1384,856 @@ shell is not a login shell by default, so wrap: `ssh ilifu "bash -lc '...'"`.
 Result npz files are small enough to pull with
 `ssh ilifu "bash -lc 'cat <remote>'" > <local>`.
 
+### Fig. 12 right panel rebuilt (added 2026-10-01)
+
+`hi_kmodes`'s right panel used to quote a sky area for the auto-spectrum, which
+contradicted its own caption: `sufficiency()` applied the variance-only count
+`2(1+R)^2` to a term the same figure called a bias. It now says what is true --
+**the auto rows carry no area at all**, only the bias `R = P_floor/P_HI` (655x
+for the raster, 1.6e5x for the parked drift). The `2(1+R)^2` count survives in
+the returned dict under `auto_lower_bound_if_floor_known`, because that is all
+it ever was: a bound that assumes the floor's mean power is known and
+subtracted, i.e. that you know the sky the survey failed to measure. **Do not
+quote 3.9e6 deg^2 as an auto requirement.**
+
+The cross rows now use the full Gaussian cross-spectrum variance,
+
+    (dP_x/P_x)^2 = [1 + (1 + R)(1 + 1/(nbar P_g)) / r^2] / N_m,
+
+parameterised by `R_CROSS`, `NPG = (inf, 1.0)` and `SNR = (1, 3, 5)`. The extra
+leading 1 (the cross-power's own sample variance) raises the count from `R` to
+`2 + R`, which is 0.31% for the raster -- `main()` asserts the 2937 deg^2 the
+draft quotes survives, and it does, at 2946.
+
+| row | nPg | 1 sigma | 3 sigma | 5 sigma |
+|---|---|---|---|---|
+| raster | inf | **2 946** | **26 515** | 73 653 |
+| raster | 1 | 5 888 | 52 990 | 147 193 |
+| 12-strip drift | inf | 2.63e5 | 2.36e6 | 6.56e6 |
+| 3-strip drift | inf | 1.09e6 | 9.83e6 | 2.73e7 |
+
+Bold is inside the reachable sky (30 717 deg^2), so the raster cross-correlation
+is buildable **to 3 sigma, not 5**. The twelve-strip drift is the new row and
+the point of it: at the raster's mode density it still needs 90x the raster's
+sky, so matching mode count does not buy the science back.
+
+**One number in the draft was wrong and is now fixed**: the abstract notes said
+the drift needs "4000x more sky than the raster" in cross-correlation. It is
+**370x** (1.09e6 / 2946) -- 4000 does not come out of any version of the
+formula. Both planning comment blocks in `main.tex` were rewritten.
+
+drift12 has no cached operator (the ladder sweep discards its operators), so
+`drift12_geometry()` reads n_eff 147.18 / 674.8 deg^2 from
+`results/hi_ladder_long_ns64.npz`, falling back to the tab:modes values. It
+appears in the right panel only -- there is no k decomposition for it.
+
+Notation: the x label is now a plain area, the dP/P definition moved into the
+legend, and the reference line is the reachable sky with 4pi drawn faint behind
+it. `MUTED` is now within a hair of `INK`, so reachability is carried by alpha
+(`DIM`), not colour.
+
+**Band-parameterised, so 675-725 MHz can be drawn too (2026-10-01).**
+`ska_hi_kmodes.py` now has a `Band` dataclass and `BANDS = {"f350", "f700"}`,
+and `main()` takes `--band` and `--draw-only`. Everything band-specific is in
+the config: frequency, nside, the matched ablation npz the floors come from,
+the strategy names (`drift12` at 350, `drift12m` at 700), the ladder fallback
+row, the output npz, the figure suffix and the axis limits. `f350` is
+bit-for-bit unchanged -- both PNGs reproduce byte-identically, and the 2 946
+deg^2 assertion still passes at 0.31%.
+
+Two things worth knowing:
+
+* `FLOOR_AMP` is gone. Floors are now read from the band's ablation npz by
+  `floor_amp()` and **rounded to 1 dp**, which reproduces the old literals
+  exactly (399.6 / 239.3 / 25.6) while making them impossible to leave stale.
+  The rounding is deliberate: the ratio enters squared, so further digits are
+  noise against 15-18% realisation scatter.
+* `compute()` needs the cached operators, so at 700 MHz it runs on Ilifu.
+  `save()`/`load()` split the work: everything the figures need goes into
+  `results/hi_kmodes_<band>_*.npz`, and `--draw-only` redraws from that alone.
+  Pull the npz, draw locally.
+
+**Queued: job 13985514 (`ska-kmodes`), `--dependency=afterok:13920795`.** It
+fires when the matched700b ablation lands and writes
+`results/hi_kmodes_f700_ns128.npz`. `scancel 13985514` to drop it. Then:
+
+```bash
+# pull, then
+/home/geoff/limTOD/.venv/bin/python ska_hi_kmodes.py --band f700 --draw-only
+```
+
+All three f700 operators are confirmed present on Ilifu (`op_{drift,drift12m,
+raster}_f675.781_ns128.pkl`), and the ladder cross-check for the 12-strip row
+resolves to n_eff 251.20 over 331.73 deg^2. Note Ilifu's `ska_hi_plots.py` was
+**stale** (no `MONO_STRAT`) and has been updated along with the new
+`ska_hi_kmodes.py` and `run_kmodes.sbatch`; `ska_hi_ladder.py`, `ska_common.py`
+and `ska_hi_experiment.py` already matched. Anything run there needs
+`export FASTBOX_PATH=$HOME/ska/FastBox` or `ska_hi_mock` refuses to import.
+
+**What to expect at 700 MHz.** Required area goes as (2 + R)/density with
+R the SQUARED floor. The floors invert between bands (drift 16.1 vs raster 36.0
+at 675-725, against 399.6 vs 25.6 at 350-400), so the drift rows should come
+out BELOW the raster and the figure should reorder. Do not present the 350 MHz
+version as a general statement -- see the band table above.
+
+**There is no mock tracer, and the figure now says so (2026-10-01).** Nothing
+in this repo simulates a galaxy survey -- no catalogue, no n(z), no bias, no
+footprint. The only mocks are HI: the fastbox `HITracer` cube (b_HI 1.559,
+Tb 0.518 mK, with RSD) and the independent HI mock `X_m` that `T(k)` uses. The
+cross-correlation is pure algebra, and the tracer enters through exactly two
+numbers, `R_CROSS` and `NPG`. So "galaxy survey" was replaced by **"ideal
+tracer"** in the row labels and the legend, and the caption now states plainly
+that no tracer is simulated.
+
+Assumptions a referee will go for, in order: the tracer is granted the HI map's
+own `N_eff` over the same patch (no window of its own); the whole patch is one
+band power, with no k binning, which is the most optimistic aggregation
+possible; Gaussian errors; floor/HI patch-averaged at 4 modes, common
+resolution; the HI map's thermal noise is NOT in the cross variance (10-52x
+below the floor, small but absent).
+
+**The redshift is the weak point.** 350-400 MHz is z = 2.55-3.06, D_c = 6155
+Mpc. There is no wide-area spectroscopic *galaxy* survey there -- the plausible
+tracers at z ~ 2.8 are the Lyman-alpha forest, quasars, or LBGs. `nbar P_g = 1`
+over the accessible k (k_perp <= 0.016, k_par 0.012-0.192 Mpc^-1) needs nbar of
+roughly 1e-5 to 4e-4 Mpc^-3 depending on k and bias (back-of-envelope with the
+pipeline's own cosmology; not in the paper). If the claim is ever to name a
+tracer, that is the number to check against a real n(z).
+
+**Split into two figures, same day.** The sufficiency panel was too dense beside
+a log-log panel, so `fig_kmodes` is now the angular-scale panel alone
+(`hi_kmodes.png`) and `fig_sufficiency` is the sky-area panel alone
+(`hi_sufficiency.png`); both call shared `_panel_*` helpers, the same split
+pattern as `fig_design`/`fig_levers`. In the paper they are `fig:kmodes`
+(single column) and `fig:suff` (`figure*`, 0.92 textwidth). The generator
+registry has both, so a notebook regeneration keeps them.
+
+**main.tex was re-synced from Overleaf on 2026-10-01.** Geoff writes there and
+codes here; the local copy had drifted badly (different captions, no `\iffalse`
+blocks, plain `HI` where the draft uses `\textsc{Hi}`). The local file is now a
+mirror of the Overleaf version plus the two new figure blocks, the corrected
+abstract sentence and the corrected Discussion comment. **Do not edit prose
+here** -- hand Geoff tex to paste instead, or the two diverge again. Note the
+draft includes `hi_patch_maps` and `hi_transfer_function` as `.pdf`, and
+`_save()` writes only `STYLE["fmt"]`, so a `.png` regeneration leaves those two
+stale without saying so.
+
+### The ladder is penalised for its own extent (found 2026-10-01)
+
+**The prior is set per strategy, from that strategy's own patch.**
+`ska_hi_analysis._solve_args` builds `S^-1 = I / (PRIOR_VAR_SCALE *
+var(fg_truth_patch))`, and `fg_truth_patch` is the pixels THAT strategy
+observes. So a longer declination ladder spans more sky, picks up more
+structure, gets a larger sigma_p, and is handed a LOOSER prior -- which
+`fig_priorvar` shows raises tr(WA) and *worsens* the floor. A ladder is
+therefore penalised for its extent, independently of its geometry. This is a
+confound in every drift-vs-drift12 comparison in the series.
+
+Measured on the real footprint at 675-725 MHz (RA 150.9-165.9 deg, the 15 deg
+of drift, plus a beam margin):
+
+| | dec band | npix | <T> | sd | max |
+|---|---|---|---|---|---|
+| drift (3 strips) | 7.30-11.28 | 480 | 3.476 K | **0.321 K** | 4.83 |
+| drift12m (12) | 2.70-15.87 | 1200 | 3.571 K | **0.401 K** | 4.83 |
+
+So **not a brighter sky** -- 3% in the mean, identical maximum, and over the
+full RA ring the wider band is marginally COOLER (8.08 vs 8.14 K). What differs
+is structure: sigma_p is 1.25x wider, i.e. the prior variance is **1.56x
+looser** for drift12m than for drift.
+
+Direction of the effect is right for the puzzle: at 675-725 drift12m's floor is
+20.8x against the 3-strip drift's 16.5x, i.e. WORSE with 12 strips (and with 4x
+the integration time -- the ladder gives one strip per sidereal night, so 12
+strips is 12 nights against 3). Whether 1.56x of prior accounts for a 26% floor
+difference is not yet known: the prior sweep is at 350 MHz over 1e-2 to 1e3, and
+the local slope at 1.0 has not been read off.
+
+**ANSWERED 2026-10-01 by job 13990883 (`ska-pin`), 3:36:15, MaxRSS 31.8 G.**
+`run_ablation_pin.sbatch pin700 drift drift drift12m raster` ->
+`results/hi_ablation_pin700_f675_725_nc32_ns128.npz`. Same 713/171 px as
+matched700b, verified identical.
+
+| strategy | prior scale | unpinned floor | pinned floor | change |
+|---|---|---|---|---|
+| drift (reference) | 1.0000 | 16.48 | **16.48** | **+0.0%** |
+| drift12m | 0.6817 | 20.79 | 19.27 | -7.3% |
+| raster | 0.5421 | 30.56 | 27.17 | -11.1% |
+
+**The control is exact**: drift reproduces 16.48 to 2 dp and every printed digit
+of its log line (16.8 / 16.9 / 1.3 / 0.1 / 1.3). So the comparison is sound.
+
+**The confound is real but explains only about a third of the anomaly.**
+drift12m/drift goes 1.261 -> 1.169, i.e. 35% of the excess is the prior and
+**two thirds is not**. At a common prior the twelve-strip ladder is still 17%
+worse than three strips at this band, with 4x the integration time. The
+ordering is unchanged -- drift < drift12m < raster -- so the 675-725 conclusion
+survives the correction.
+
+**The raster is penalised MOST (-11.1%), because its patch is the widest.**
+That matters more for 350-400 than anything here: pinning there would improve
+the raster more than the drift, so **the published cross-linking gains are
+conservative** -- 9.3x and 14.4x are lower bounds, not best cases. NOT yet
+measured at 350; a pinned run at nside 64 is cheap and would settle it.
+
+**This also bears on 350-400**, where drift12 spans the same 13.16 deg. There
+drift12 came out BETTER (239.3 vs 399.6), so the looser prior did not stop it
+winning -- but the measured cross-linking gain is understated by whatever this
+costs, and Table 2's mode densities are quoted at each strategy's own prior.
+
+### One fixed prior per band (added 2026-10-02)
+
+**Definition.** For each band and channel, `sigma_p^2` is the variance of the
+GDSM truth over the **three-strip drift's own patch**, stored in
+`results/prior_ref_f{lo}_{hi}_ns{nside}.npz` and read by every run in that
+band. Not the common patch: that is the intersection over whichever strategies
+are in the run, so it moves when the strategy list does and is not a property
+of the band. At 675-725 the two agree to **0.6%** (0.3397 vs 0.3416 K at
+channel 0), because the drift is the narrowest strategy, so `pin700` stands as
+measured. `PRIOR_VAR_SCALE` stays 1.0.
+
+**New module `ska_hi_prior.py`**, with a single switch `prior.PINNED`, OFF by
+default so every published number reproduces untouched -- merely building a
+reference file cannot move Table 2. Runs opt in with `--pin-prior`.
+
+**Every place S^-1 is set, and what happened to it:**
+
+| site | what it feeds | routed? |
+|---|---|---|
+| `ska_hi_analysis._solve_args` | every map-making solve | yes |
+| `ska_hi_modes.py:90` | Table `tab:modes` | yes |
+| `ska_hi_ladder.py:145` | the ladder sweeps | yes |
+| `ska_hi_kmodes.eig_decomposition` | hi_kmodes, hi_sufficiency | yes |
+| `ska_hi_design.freq_mode_density` | hi_design, hi_levers | yes |
+| `local_modes.py:54` | prototype, not a paper figure | **no** |
+| `plot_freqsweep_maps.py:106` | experiment 005, different geometry | **no** |
+| `audit_flat_prior.py:103` | experiments 004/005 audit | **no** |
+
+The last three are outside the HI comparison chain and run at bands with no
+reference; they are listed so nobody has to re-derive this. `ska_hi_priorvar.py`
+and `ska_hi_plots.py:847` only *consume* `s_inv`, so they are untouched and the
+prior sweep still works.
+
+`solve`, `response` and `validate_linearity` now take `freq_mhz`; a pinned solve
+without one **raises** rather than silently using the patch, because that is the
+failure mode worth catching. Verified: unpinned, `hi_kmodes.png` and
+`hi_sufficiency.png` are byte-identical to before the routing.
+
+**Step 0 finding.** Job 14001763 (850-900 MHz) was submitted before any of this
+and would have used the per-strategy prior. Cancelled and replaced.
+
+**Runs queued 2026-10-02** (all via the new `run_hi_band.sbatch
+<bandenv|default> <pin|nopin> <tag> <strategy>...`, experiment + ablation):
+
+| job | tag | band | nside | strategies | unpinned reference |
+|---|---|---|---|---|---|
+| 14002898 | `pin350` | 350-400 | 64 | drift, drift12, raster | `matched` (same set) |
+| 14002899 | `pin500` | 500-550 | 128 | drift, raster | `f500` (same set) |
+| 14002900 | `f875` | 850-900 | 128 | drift, raster | -- it IS the reference |
+| 14002901 | `f875pin` | 850-900 | 128 | drift, raster | 14002900, `afterok` |
+| 14002942 | mode check | both | -- | -- | prints own vs pinned |
+
+`pin700` is done (job 13990883) and used the three-strip drift's patch, which is
+the definition above. **Control to check on every pinned run: the three-strip
+drift must reproduce its unpinned numbers exactly**, as it did at 700 MHz.
+
+**Step 3 DONE (job 14002942, 2:59).** Mode counts at channel 0, own prior vs
+pinned. Threshold counts are prior-independent and reproduce Table 2 exactly
+(17/37/52/33), and the three-strip drift is +0.0% at both bands -- control.
+
+| band | strategy | area | n_eff own | n_eff pin | change | /100 deg^2 own -> pin |
+|---|---|---|---|---|---|---|
+| 350-400 | drift | 265.2 | 38.78 | 38.78 | **+0.0%** | 14.62 -> 14.62 |
+| | drift8 | 499.4 | 100.05 | 98.94 | -1.1% | 20.03 -> 19.81 |
+| | drift12 | 674.8 | 147.18 | 146.09 | -0.7% | 21.81 -> 21.65 |
+| | raster | 574.1 | 128.09 | 119.39 | **-6.8%** | 22.31 -> 20.80 |
+| 675-725 | drift | 152.1 | 63.70 | 63.70 | **+0.0%** | 41.87 -> 41.87 |
+| | drift12m | 331.7 | 251.19 | 240.84 | -4.1% | 75.72 -> 72.60 |
+| | raster | 383.3 | 293.45 | 267.09 | **-9.0%** | 76.55 -> 69.67 |
+
+**The raster loses the most mode count**, at both bands, for the same reason it
+gained the most floor: its patch is the widest, so its prior was the loosest and
+it was counting the most prior-filled directions as data-dominated.
+
+**The density match holds, but crosses over.** drift12 / raster density goes
+0.9775 (-2.2%) -> **1.0410 (+4.1%)** at 350-400, and drift12m / raster goes
+0.9892 (-1.1%) -> **1.0420 (+4.2%)** at 675-725. Both inside the ~5% tolerance,
+so **no ladder re-tuning**. But the sign flips: the twelve-strip drift no longer
+*approaches* the raster's density from below, it slightly **exceeds** it. If the
+pinned floors hold up, the matched-density argument gets stronger, not weaker --
+more modes per unit sky AND a far worse floor.
+
+`prior_ref_f675_725_ns128.npz` reports sigma_p 0.2818-0.3416 K, identical to
+what job 13990883 printed, which **confirms pin700 used this definition**.
+
+**Failures 2026-10-02, all diagnosed:**
+
+* `pin500` (14002899) **FAILED** -- and the guard is why. `ska_hi_ablation.py`
+  line 158 called `A.response(mm, hi, truth)` with no `freq_mhz`, so the pinned
+  solve raised instead of silently using the patch. One site, missed because it
+  is an `A.response` and I had patched only the `A.solve` calls. Found every
+  remaining one by AST rather than grep (multi-line calls hide from grep).
+  Its **experiment stage completed** and wrote `hi_experiment_pin500_*`, so only
+  the ablation is re-run, via the new `STAGE=ablation` env on
+  `run_hi_band.sbatch`.
+* `pin350` (14002898) **TIMEOUT** at 4 h: drift finished in 609 s, drift12 did
+  not. My 4 h was far too tight -- the unpinned `matched` run (13857817) took
+  3:33:41 for the experiment alone. Resubmitted at 12 h.
+* `f875` (14002900) **TIMEOUT** at 6 h having never reached the first strategy:
+  it was still building operators. **Cache warming at nside 128 is ~2.5 h per
+  channel**, which is why 700 MHz was warmed by a 32-task ARRAY (`ska-warm7`,
+  13920776), not in the run. So 850-900 needs
+  `sbatch --array=0-31 warm_caches_f875.sbatch drift` and the same for raster --
+  64 tasks -- before any run. Script is in place; NOT submitted pending a
+  decision on the cost.
+
+**Re-queued:** 14024831 `pin350` (12 h), 14024832 `pin500` ablation-only (4 h).
+
+**Expectation, to be checked not assumed:** at 350-400 the twelve-strip drift
+has the widest patch (674.8 deg^2 against the raster's 574.1 and the three-strip
+drift's 265.2), so pinning should help it most and the **9.3x should shrink**
+while the **14.4x grows**.
+
+### Pinned-prior results, all bands (added 2026-10-05)
+
+Jobs 14024831 (`pin350`, 7:12:31) and 14024832 (`pin500` ablation, 42:44)
+COMPLETED; `pin700` was job 13990883. All at 4 modes removed, common
+resolution, interior pixels, against an unpinned run with the SAME strategy set
+and the same pixel set (verified). **All ratios below are AMPLITUDE.**
+
+| band | strategy | floor/HI own | pinned | change | total/HI own | pinned | change | N_eff/100deg2 own | pinned | change |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 350-400 | drift | 399.61 | 399.61 | +0.0% | 413.49 | 413.49 | -0.0% | 14.62 | 14.62 | +0.0% |
+| 350-400 | drift12 | 239.29 | 236.20 | -1.3% | 268.49 | 262.97 | -2.1% | 21.81 | 21.65 | -0.7% |
+| 350-400 | raster | 25.64 | 26.79 | +4.5% | 27.08 | 37.94 | +40.1% | 22.31 | 20.80 | -6.8% |
+| 500-550 | drift | 214.30 | 214.30 | +0.0% | 213.17 | 213.17 | +0.0% | -- | -- | -- |
+| 500-550 | raster | 56.24 | 47.87 | -14.9% | 76.72 | 69.47 | -9.5% | -- | -- | -- |
+| 675-725 | drift | 16.48 | 16.48 | +0.0% | 16.63 | 16.63 | +0.0% | 41.87 | 41.87 | +0.0% |
+| 675-725 | drift12m | 20.79 | 19.27 | -7.3% | 22.17 | 20.74 | -6.4% | 75.72 | 72.60 | -4.1% |
+| 675-725 | raster | 30.56 | 27.17 | -11.1% | 32.21 | 29.14 | -9.5% | 76.55 | 69.67 | -9.0% |
+
+| ratio (AMPLITUDE, not power) | band | unpinned | pinned | change |
+|---|---|---|---|---|
+| 12-strip drift / raster, floor (the **9.3x**) | 350-400 | 9.33x | 8.82x | -5.5% |
+| 3-strip drift / raster, total, common res (the **14.4x**) | 350-400 | 15.27x | 10.90x | -28.6% |
+| 12-strip / 3-strip drift, floor | 675-725 | 1.26x | 1.17x | -7.3% |
+| 3-strip drift / raster, total, common res | 500-550 | 2.78x | 3.07x | +10.4% |
+
+**The control holds at every band**: the three-strip drift is +0.0% on floor,
+total and N_eff, to every digit. So the mechanism is sound and every change
+below is the prior and nothing else.
+
+**What moved, and the direction.** The reference is the drift's patch, which is
+the NARROWEST, so pinning TIGHTENS the prior for everything else (at 350-400 the
+raster's own sigma_p is 2.7693 K against the reference 2.2867, i.e. prior
+variance x0.682). Tighter means fewer data-dominated modes -- hence N_eff falls
+for every non-reference strategy, most for the raster (-6.8%, -9.0%), which has
+the widest patch.
+
+**The 9.3x shrinks to 8.82x (-5.5%), as predicted.** The twelve-strip drift's
+own floor barely moves (-1.3%) while the raster's rises, so the matched-density
+gap narrows. Combined with the mode counts above -- drift12 now at 1.0410x the
+raster's density rather than 0.9775x -- the matched-density claim is intact and
+if anything cleaner: MORE modes per unit sky and still ~9x the floor.
+
+**The 14.4x does NOT grow. It falls to 10.90x (-28.6%).** That is the opposite
+of the expectation, and it rests on a number that is **not yet trustworthy**.
+
+#### RESOLVED 2026-10-05: pinning redistributes noise in k_par, at 350 MHz only
+
+The +334% was never a bug. These arrays are per **k_par bin** (16 of them), and
+the series' summary statistic is the median over bins -- so a change in the
+SHAPE of the spectrum moves the median even when the total power falls.
+
+Per-bin ratio of `cr_noiseonly_4` POWER, pinned / unpinned:
+
+| band | strategy | low k | mid k | high k | bins with total > 1.2x floor (pin / unpin) |
+|---|---|---|---|---|---|
+| 350-400 | drift12 | 0.83 | 3.59 | 4.97 | 1/16 / 2/16 |
+| 350-400 | **raster** | **0.56** | **22.9** | **52.7** | **9/16 / 0/16** |
+| 500-550 | raster | 0.61 | 0.79 | 1.82 | 11/16 / 7/16 |
+| 675-725 | drift12m | 0.51 | 0.52 | 0.48 | 0/16 / 0/16 |
+| 675-725 | raster | 0.43 | 0.41 | 0.37 | 1/16 / 2/16 |
+
+The drift control is **exactly 1.00 in every bin at every band**, so the
+mechanism is sound.
+
+**At 675-725 pinning is clean**: the noise falls uniformly across k (0.37-0.52),
+which is the expected damping from a tighter prior, and both strategies stay
+floor-limited. The direct one-channel test agrees -- map-space |noisy - quiet|
+rms 0.531 -> 0.424.
+
+**At 350-400 it redistributes**: low k falls as expected (0.56) but mid and high
+k rise 20-50x from a very low base, and the raster stops being floor-limited
+above k ~ 0.06 -- 9 of 16 bins, against 0 of 16 unpinned. drift12 shows the same
+signature ~10x weaker, so it scales with how far the prior moved, and it is a
+property of the BAND, not of the raster.
+
+Not the explanation: the spectral slope of the reference. The raster/drift
+sigma_p ratio runs 1.2031-1.2760 across 350-400, a smooth monotonic 6% -- which
+would show up at LOW k, not high. More likely the prior change moves modes
+across the data/prior crossover (the raster loses 8.7 of 128 modes), and
+marginal modes are the ones most sensitive to the per-channel operator changing
+as the beam narrows 12.5% across this band -- the largest chromaticity in the
+series. **That is a hypothesis; the measurement above is not.**
+
+**Operational rule:**
+
+* Mode counts and FLOORS: use the pinned numbers, every band. The 350 floor
+  redistributes mildly too (about +/-15% across k, median +4.5% for the raster),
+  so quote 8.82x rather than 9.33x but do not treat the third digit as safe.
+* TOTAL residual at 350-400: **use the unpinned run.** The pinned total is
+  contaminated by noise the prior moved into the measured k range, and 10.90x is
+  not a number to put in the paper.
+* 500-550 and 675-725: pinned is fine throughout.
+
+
+### Amplitude-only prior, and the shared white-noise bug (added 2026-10-05)
+
+**Two independent corrections, both now implemented.**
+
+**(1) The pinned prior shared the wrong thing.** Imposing the reference's
+per-channel sigma_p(nu) also imposes its spectral SHAPE. Measured, noise power
+before any cleaning, pinned/own:
+
+| | low k | mid k | high k | map rms |
+|---|---|---|---|---|
+| shape-pinned | 0.68 | **13.54** | **132.70** | -21.3% |
+| amplitude-only | 0.62 | 0.61 | 0.58 | -21.7% |
+
+Same total noise removed; only the shape-pin redistributes it. Cause: the
+Wiener gain lambda/(lambda + sigma_p^-2) depends on lambda, which varies
+channel to channel as the beam narrows 12.5% across 350-400, so a
+frequency-varying scale (0.6142-0.6908, a 12.5% swing) changes which modes sit
+near the data/prior crossover per channel. The per-mode bound
+lambda/(lambda+sigma_p^-2)^2 constrains TOTAL noise power, not its distribution
+in k_par, so it forbids none of this.
+
+New definition: `sigma_p,s^2(nu) = sigma_p,s^2,own(nu) * c_s`, `c_s` the
+geometric mean over channels of ref/own. Controls pass: drift `c = 1.000000`
+and bit-identical (0.000e+00); raster `c = 0.654902`, residual shape spread
+**6.1%** -- what we deliberately leave in, and what the paper should quote.
+
+**(2) The white noise is identical in every channel.** `simulate_foreground`
+re-seeds with `p["seed"]` (= SEED + night, NO frequency dependence) and calls
+`generate_TOD` one channel at a time, so every channel draws the same white
+realisation. The CACHED TODs carry it too -- `replay_noise` is faithful, not
+out of step. Empirical: ch0/ch1 TOD ratio scatters 1.21e-4 where independent
+draws would give 2.24e-3, 18x larger.
+
+A common 1/f gain across the band is right for one receiver and is KEPT.
+Identical thermal noise is not: following the sky's smooth spectrum it is
+nearly rank-1, so PCA removes most of it and the published post-clean noise is
+optimistic. New arms `noiseonly_indep` and `total_indep` redraw the white part
+per (pass, channel) with `SeedSequence([seed, channel])` -- not `hash()`, which
+is signed and out of range for `np.random.seed`. Published arms untouched.
+
+**What each correction touches** (they are NOT the same set):
+
+| | amplitude-only prior | shared white noise |
+|---|---|---|
+| floors, N_eff, sufficiency/sigma levels | **redo** | safe |
+| total residual, noise arms, hi_frequency_ratio | **redo** | **redo** |
+| dead levers (time, Tsys, dishes) | -- | **at risk** |
+
+The sigma levels are floor-derived (`sufficiency()` takes only floor_amp, n_eff,
+area; both the floor arm and `p_hi` are noiseless), so the noise bug does not
+reach them. The dead-levers claim is what the noise bug most threatens: it
+holds because the residual is 96-99% floor, and noise/floor is already 7.7% at
+675-725 where the drift/raster inversion lives.
+
+**Ablation-only re-runs are sufficient.** The ablation's `cr_total_4/cr_p_hi`
+reproduces the experiment's `p_clean_auto_4/p_mapmade` to **0.0%** at both
+bands checked, and every quantity in the report comes from the ablation
+(N_eff from the mode check, operators only). That drops pin350 from ~7 h to
+~1-2 h. NOTE `ska_hi_design.load_bands` reads the EXPERIMENT npz, so
+`hi_frequency_ratio` will keep plotting shared-noise numbers until it is
+repointed -- left alone deliberately, no figure edits until the table is
+reviewed.
+
+**Queued 2026-10-05:** 14053756 `amp350` (drift, drift12, raster), 14053757
+`amp500` (drift, raster), 14053758 `amp700` (drift, drift12m, raster), all
+ablation-only with `--pin-prior`; 14053380 `f875pin` released; 14053379 `f875`
+waits on the last warm tasks. f875/f875pin pick up the new code, so both bands
+get the independent-noise arms.
+
+### Section A/B of the minor TODOs, and two controls (added 2026-10-07)
+
+Claude Science sent a list of minor checks. All of Section A (numbers) and
+Section B (figures) are done. The write-ups live in `~/handover/` --
+`paper1_minor_todos_A.md` and the MANIFEST inside
+`~/handover/ska_figures_sectionB.zip` -- because they are addressed to the
+draft, not to this repo. Only what changes the CODE or would be re-derived
+from scratch is recorded here.
+
+#### The ablation noise model (the one real decision)
+
+`fig_ablation`'s old caption said noise sits 10-52x BELOW the floor, so
+integration time is a dead lever. That reading came from the `whiteonly` /
+`noiseonly` arms, and those are **channel-identical**: `simulate_foreground`
+reseeds with `p["seed"]` (= SEED + night, no frequency dependence) once per
+pass and calls `generate_TOD` one channel at a time, so every channel draws the
+SAME white realisation. Channel-identical noise is spectrally smooth, lives in
+the same few modes as the foreground, and PCA removes most of it. The arm was
+measuring a cleaning artefact.
+
+`noiseonly_indep` / `total_indep` (added 2026-10-05) draw per channel from
+`SeedSequence([seed, channel])`. At 350-400, 4 modes removed, cr_ interior:
+
+| | floor | noise, white shared | noise, white independent |
+|---|---|---|---|
+| 3-strip drift | 399.6 | 8.3 | 1025.7 |
+| 1-dish raster | 22.3 | 1.8 | 2050.1 |
+
+A factor of **124x** (drift) and **1161x** (raster) purely from the correlation
+assumption, and the honest arm sits ABOVE the floor, not below it.
+
+**Decision: draw both.** `fig_ablation` now plots `floor`, `total`,
+`gainonly`, `noiseonly` (dashed) and `noiseonly_indep` (solid, HIGHLIGHT red),
+and the gap between the last two is the figure's point. The floor argument is
+untouched -- the floor is *defined* as what does not integrate down -- but
+"noise is a dead lever" is gone: at 3 h the maps are noise-dominated, and
+integration stays live until noise crosses the floor.
+
+Pairing trap, hit and fixed before rendering: `noiseonly_indep` applies
+`(1 + g)(1 + w_ind)`, so it carries the 1/f term and its counterpart is
+`noiseonly`, NOT `whiteonly`. 1/f is negligible against independent white
+(5.1 vs 1025.7 for the drift) so the curve hardly moves, but the label would
+have been false.
+
+#### Matched-depth control (PLAN item 5) -- 9.4x becomes 9.93x
+
+New ablation `rnarrow`, strategies `drift raster rasternarrow`, amplitude-only
+prior, 350-400 MHz nside 64. Job 14102350, **45 min** (the 2 h 17 estimate was
+pessimistic). Pure replay -- all 32 operators and the TOD caches already
+existed, no new TOD.
+
+| | floor | drift / x |
+|---|---|---|
+| drift | 338.58 | -- |
+| raster (full throw) | 19.50 | **17.37x** (geometry + depth) |
+| rasternarrow | 34.09 | **9.93x** (geometry alone) |
+
+So ~9.9x of the drift's disadvantage is cross-linking geometry and the rest
+(~1.75) is depth. Two things that must travel with the number: "matched depth"
+is **0.84x, not 1.00x** (the raster cannot be brought further -- coverage is
+set by the 22.5 deg of RA drifting past in 1.5 h and by the beam, not the
+throw, so even a sub-beam 2 deg half-width takes 377 px against the drift's
+316), and **this run has its own common patch and HI realisation** because its
+strategy list differs from `amp350`'s. Its drift floor is 338.58 against
+`amp350`'s 399.61 and its drift/raster is 17.37x against 17.92x. Quote the
+matched-depth comparison from inside this run only.
+
+#### 8-strip row of tab:modes
+
+Job 14102348, 2 min 41 s, `ska_hi_modecheck.py --strategies drift drift8`.
+`drift8`'s amplitude constant had never been computed: **c = 0.848088**.
+
+| strategy | area | npix | N_eff own | N_eff pin | /100 deg2 own | /100 deg2 pin |
+|---|---|---|---|---|---|---|
+| drift (3) | 265.2 | 316 | 38.78 | 38.78 | 14.62 | 14.62 |
+| drift8 | 499.4 | 595 | 100.05 | 98.32 | 20.03 | **19.69** |
+
+Use 19.69. Only -1.7% because `drift8` shares the reference's 0.5-beam spacing
+and differs only in extent; spacing is what moves the constant. The 3-strip row
+reproduces exactly, which is why it was in the list.
+
+Results: `results/hi_{ablation,experiment}_rnarrow_f350_400_nc32_ns64.npz` and
+`results/hi_modecheck_f350_400_ns64.npz`, all pulled from ilifu.
+
+#### Figure changes (details in the zip's MANIFEST)
+
+`hi_frequency_ratio` on the floor arm with four bands; `hi_cleaning_depth`
+rewired and its duplicate legend entry deduped on label; **new**
+`hi_noise_terms.png`; adopted-prior axvline on `hi_priorvar`; `hi_ladder` cut
+to two panels; `hi_ladder_geometry` cut to three columns; `_f350` aliases for
+`hi_kmodes` and `hi_sufficiency`.
+
+Two numbers from those worth not re-deriving:
+
+- **HI dims 16.08x from 350-400 to 850-900**, against only 4.52x to 675-725.
+  Any residual/HI comparison ACROSS bands is partly a statement about the
+  denominator.
+- **The ladder's marginal return is flat**, 11.65-12.50 modes for 43.1-47.0
+  deg2 per added strip from n=3 to n=20. The right panel of `hi_ladder` looks
+  like diminishing returns only because of the per-100-deg2 normalisation.
+
+`hi_ladder_geometry` was asked for at 0.5/1/2 beams but the sweep only measured
+out to 1.5, so a 2-beam column would carry no measured density. It uses **1.5
+beams**; a true 2-beam point is a short `ska_hi_ladder.py` job if wanted.
+
+---
+
+### Line-of-sight modes in the forecast, and the matched white level (2026-10-08)
+
+Two tasks from `claude_code_nm_whitevar.md`, both pure post-processing of the
+npz in `results/`. Full write-up and figures in `~/handover/ska_nm_kpar.zip`;
+the numbers regenerate with `python ska_nm_kpar.py`.
+
+#### The forecast was throwing away the line of sight
+
+`sufficiency()` set `N_m = N_eff = tr(WA)`, the angular dof of ONE channel,
+against a floor/Hi ratio taken as the MEDIAN over k_par bins. The cube has 32
+channels and the forecast already assumes an ideal spectroscopic tracer, so it
+was entitled to the radial modes too. Replaced by an inverse-variance sum,
+
+    R_b = P_fl,b / (T_b^2 P_HI,b),
+    Omega_req = SNR^2 / [rho sum_b n_b/(2 + R_b)],   rho = N_eff/Omega_sim
+
+with `T` squared because `transfer_function` returns a cross-power over the
+mock's AUTO-power, so T is an amplitude ratio. That retires the standing
+"areas optimistic by 1/T^2" caveat -- the correction is now carried, not noted.
+
+| 1 sigma, ideal tracer | published | per-k_par |
+|---|---|---|
+| 350-400, 3-strip drift | 1.09e6 | 36,648 |
+| 350-400, 12-strip drift | 2.54e5 | 6,729 |
+| 350-400, raster | 2,419 | **112** |
+| 675-725, 3-strip drift | 655 | **12.9** |
+| 675-725, 12-strip drift | 516 | **7.8** |
+| 675-725, raster | 1,058 | **35.5** |
+
+**Ordering unchanged at both bands**; the gaps narrow (drift/raster 451x ->
+329x at 350-400). Everything at 675-725 MHz now sits BELOW its own simulated
+patch, which predicts a 3.3-6.5 sigma cross-detection in data already on disk.
+Not checked -- it was not in the brief -- but it is directly checkable and
+should be before the number goes in the draft.
+
+**Everything rests on bins 3-11.** They carry 87% of `sum_b n_b/(2 + R_b)`;
+bins 1-2 carry 0.4% between them, because that is where the floor is worst
+(`R_1 = 86,080` vs a median 621 for the raster) AND where `T_b` is lowest
+(0.51, 0.81 vs ~0.88), and `T` enters squared. Convenient: the forecast is
+insensitive to exactly the two bins whose `T` is least well measured.
+
+**dof convention, the thing to get right.** `pk_par` subtracts the mean along
+frequency and drops DC, so **31 real dof survive, not 32**: `n_b = 2` for bins
+1-15, `n_16 = 1`. Counting one dof per bin instead halves every answer -- the
+~2x ambiguity is real. `n_b` is right: it counts real dof, which is what
+`tr(WA)` counts in the angular direction. **The earlier 12.8/15.9 for
+`N_par,eff` could not be reproduced from any of four natural conventions, and
+its drift/raster ordering is the reverse of all four.** If it matters, the
+recipe has to come from `paper1_frozen_numbers.md`, which is not in this repo.
+
+**Why summing over bins is allowed** (the referee question): the floor is
+deterministic, so its bins are not independent draws -- but in CROSS the
+variance is the chance correlation between a fixed floor and the tracer, and
+the tracer supplies fresh randomness in every (angular mode, k_par) pair. The
+objection bites only in the auto-spectrum, where the floor is already treated
+as a bias.
+
+**Auto-spectrum bound moved much further than the cross** -- 356,633 -> 1,895
+deg^2 for the drift at 675-725, a factor 188 against `N_par,eff` = 70, because
+the auto weight carries `(1 + R_b)^-2` and rewards good bins quadratically.
+All three strategies now sit inside the reachable sky on that bound. Do not
+lean on it: it still requires knowing the sky the survey failed to measure.
+
+**T had to be borrowed across prior conventions.** The amplitude-only runs were
+ablation-only, so no amplitude-only `T` exists. Measured cost at 350-400:
+`T_b` agrees to 0.6% (12-strip) and 0.4% (raster) between shape-pinned and own
+prior, against 5-9% mock scatter, and the drift (the reference) is identical to
+1e-9. T is a property of the PCA clean, which never sees the prior.
+
+**500-550 and 850-900 could not be forecast.** `rho` needs `N_eff` and the
+patch area; neither band has an `hi_kmodes` npz, a modecheck or cached
+operators (`hi_cache/` is 350 MHz only). Stopped rather than submit. Their
+`T_b`/`R_b`/`N_par,eff` are in the report. 850-900 is worse off still: no
+amplitude-only ablation, and the drift's `T` is unmeasurable above bin 10
+(scatter 1.2-12.9 on 20 mocks, `T > 1` in bins 11-13).
+
+#### Matched white noise: the draft's column was right by accident
+
+The draft rescales the whole noise arm by `sqrt(3.2e-7/2.5e-6) = 0.35777`. Only
+the WHITE part may be rescaled -- 1/f is a gain fluctuation and does not obey
+the radiometer equation -- and `noiseonly_indep` is `(1 + g)(1 + w_ind)`, so it
+carries both. Split (`white^2 = noise^2 - (1/f)^2`), rescale, recombine:
+**all ten `tab:timetofloor` values reproduce to better than 0.02%**, because
+1/f is 0.03-0.5% of the noise. Keep the split anyway: the column is correct by
+accident, not by construction, and stops being correct if 1/f is ever raised.
+
+`t_x = 3 h (noise/floor)^2`, the integration time to reach the floor, at 4
+modes: 350-400 drift **2.5 h** (so the 3-strip drift is ALREADY floor-limited at
+350 MHz in the 3 h simulated), 12-strip 13.4 h, raster 3,246 h; 675-725 drift
+1,559 h, 12-strip 648 h, raster 851 h; 850-900 raster 5,668 h. The inversion is
+the point: the better the floor, the longer it takes to integrate down to it.
+
+`fig_noise_terms` relabelled: the dashed arm said "white noise (independent)"
+but carries 1/f -- the same mis-pairing `fig_ablation` was corrected for on
+2026-10-07. Now "all noise (white independent)".
+
+#### Code
+
+`ska_nm_kpar.py` is new and self-contained. `ska_hi_kmodes.sufficiency()` takes
+an optional `kpar=` term dict and `load()` a `kpar=` flag, behind a `--kpar`
+CLI switch; `ska_hi_design` gains `WHITE_VAR_MATCHED`/`noise_matched()`.
+**The single-bin path is untouched** -- `--bands` without `--kpar` still passes
+all ten `BANDS_EXPECT` guards and renders byte-identically, re-checked after
+every patch.
+
+Figures regenerated per-k_par, each with its single-bin twin kept beside it:
+`hi_sufficiency_bands` / `_1bin`, `hi_sufficiency` (= `_f350`) / `_1bin`,
+`hi_sufficiency_f700` / `_1bin`, `hi_noise_terms` / `_white2.5e-6`. The brief
+named only the merged figure, but **`main.tex:751` includes
+`hi_sufficiency.png`**, the single-band f350 panel -- so that one had to move
+too or the figure would have contradicted its own caption. `hi_kmodes*.png` are
+untouched: they decompose `tr(WA)` by angular scale and carry no `N_m`.
+
+### The per-k_par forecast, checked against the simulated patch (2026-10-08)
+
+`claude_code_forecast_check.md`. Post-processing only. Full write-up in
+`forecast_check.md`; regenerate with `python ska_forecast_check.py`.
+
+**The forecast holds, and tr(WA) is now measured, not assumed.**
+
+The brief wanted the 20 Hi mocks re-cleaned against the noiseless floor arm.
+**Neither is stored** -- `run_hi_experiment.py` keeps only `T_b` from the
+mocks, and the ablation keeps power spectra, not cubes. Two substitutes on
+disk do the same job:
+
+1. `p_clean_cross_4` IS the wanted estimator. It is `P(clean(data), W A s_HI)`,
+   the cleaned map crossed with the map-made true Hi, which for r = 1 with no
+   shot noise is exactly the ideal tracer. So
+   `A_b = p_clean_cross_b / (T_b * p_mapmade_b)` should be 1 in every bin and
+   its scatter about 1 is the forecast's error bar. Stored for every run and
+   every depth. **Remember this exists** -- it was built in 2026-08 and never
+   used for anything.
+2. `seed11`..`seed16` vary ONLY the Hi field (checked: the cleaned auto-power,
+   99% floor, is identical across them to 0.2-0.8% per bin). With the base run
+   that is **seven** independent draws of the floor-times-tracer chance
+   correlation -- the quantity the variance is made of.
+
+| 350-400 MHz | predicted SNR | mean A | pull | empirical SNR | ratio |
+|---|---|---|---|---|---|
+| 3-strip drift | 0.08 | -6.44 +/- 4.22 | -0.61 | -- (null) | -- |
+| raster | 1.95 | 1.08 +/- 0.25 | +0.16 | 1.65 +/- 0.79 | **0.85** |
+
+Pull = (A - 1) x predicted SNR. **All six band-strategy rows are within 0.7**,
+so the forecast predicts its own error bar correctly six times out of six. At
+675-725 the amplitude comes back 1.05 / 1.04 / 0.99 against predicted 1-sigma
+errors of 0.29 / 0.17 / 0.37.
+
+**tr(WA) measured.** Inverting the per-bin variance,
+`N_ang = R_b / (n_b var(A_b))`, gives a mode count that owes nothing to
+mode-counting theory:
+
+| | tr(WA) | N_ang measured | ratio |
+|---|---|---|---|
+| 3-strip drift | 38.8 | 44.3 | **1.14** |
+| raster | 118.5 | 135.6 | **1.14** |
+
+1.14 for both, although the counts differ by 3x; rms(z) = 0.95 for each over
+7 x 16 samples. The whole chain checks out at once: angular count, radial
+count n_b, Blackman binning, and the (2 + R_b) variance. The taper's 1.78-bin
+ENBW, flagged as a risk in `nm_kpar_results.md`, does not bite.
+
+**Trap: use tr(WA), NOT rho * Omega_meas, for anything measured on the
+interior pixels.** Spectra live on the interior of the common patch (119 px,
+100 deg2 at 350-400; 171 px, 36 deg2 at 675-725), not on each strategy's own
+patch, so the naive count is low by 3.0x (drift) and 6.6x (raster). The
+interior cut throws away the patch EDGE, whose pixels have small lambda_i and
+so carry almost none of tr(WA) = sum lambda/(lambda + sigma_p^-2). It costs
+area but not modes. **No area in `nm_kpar_results.md` moves**: Omega_req uses
+rho = N_eff/Omega_sim, which is right for tiling whole patches, and the
+in-patch SNR is sqrt(N_eff sum_b n_b/(2+R_b)) either way.
+
+**Two things not to misread.** The predicted SNRs in `forecast_check.md`
+(1.95; 3.41/5.96/2.67) are NOT those in `nm_kpar_results.md` (2.27;
+3.43/6.53/3.29): `R_b` there is measured from the same cleaned map as the
+cross-power, so it is the own-prior TOTAL arm, not the amplitude-only FLOOR
+arm. 10-20% shift, deliberate, so no prediction can fail for a bookkeeping
+reason. And the single-realisation rows get **no** error-bar test: with one Hi
+field the 16 bins are not 16 independent draws, because the floor is
+spectrally low rank (participation ratio 2-5), so rms(z) over bins scatters
+0.6-3.2 and a single-draw implied mode count is biased high by ~3.6x.
+
+#### Figure and draft
+
+`hi_sufficiency_bands.png` (per-k_par) re-rendered without the open
+simulated-patch markers or their legend entry; the bar runs from 1 sigma
+outwards. `fig_sufficiency_bands` gained `patch_markers=`, passed False by
+`--kpar`; the single-bin path still renders byte-identically.
+
+**The repo copy of `main.tex` is a 2026-10-01 snapshot** (last commit
+`d12b243` 2026-09-30, mtime 2026-10-01 17:41, uncommitted since). It has none
+of the 2026-10-08 open-items box, no `hi_sufficiency_bands`, no per-k_par
+equation, and still includes `hi_sufficiency.png` at line 751. It is seven
+days behind the delivered draft, not a divergent branch -- overwrite it from
+the delivered copy. Because it still named them, the single-band
+`hi_sufficiency.png` / `_f700.png` were regenerated per-k_par on 2026-10-08;
+the delivered draft uses the merged figure, so those two are spare but
+consistent.
+
+### Why the raster "loses" at 675-725 MHz: it does not (2026-10-08)
+
+`claude_code_raster_sampling.md`. Diagnostic only -- stored pointings, cached
+operators, result npz. Write-up in `raster_sampling.md`, regenerate with
+`python ska_raster_sampling.py` (~5 min).
+
+**The premise was wrong.** The raster's post-clean foreground residual -- the
+INSTRUMENT half, with the Hi's own dimming divided out -- improves **2.5x**
+from 350-400 to 675-725. The three-strip drift's improves **105x**. The
+inversion is the drift catching up, not the raster degrading. (That table was
+already in HANDOFF under "Both strategies improve monotonically with
+frequency"; this is the first time the question was asked of it.)
+
+All four sampling candidates ruled out, measured on the interior pixels:
+
+| | 350-400 | 675-725 |
+|---|---|---|
+| raster sweep spacing | 0.769 deg = **0.19 beams** | 0.769 deg = **0.37 beams** |
+| largest gap (any interior px to nearest sample) | 0.08 beams | 0.10 beams |
+| raster two-direction coverage | **100%** | **100%** |
+| raster samples/beam (vs 3-strip drift) | 503 (0.68x) | 161 (0.56x) |
+| raster patch sky / interior sky | 1.048 | 1.068 |
+
+- **(i) gappy sweeps: ruled out.** The sweep separation is geometry, so it is
+  0.769 deg at BOTH bands; only the beam changes. Tighter than the 0.5-0.6
+  beams the brief's envelope expected. **"6'/s" in the code is an AZIMUTH
+  rate** -- `sweep_s = 150` s is one half-sweep of the full 15 deg throw, so
+  0.1 deg/s in az, 4.7'/s on sky after cos(el = 38.19).
+- **(ii) single-direction interior pixels: ruled out.** 100% two-direction in
+  both bands. Raster passes sit at PA 126 deg (rising) and 54 deg (setting),
+  72 deg apart; all drift strips at PA 89.95 with 0.01 deg scatter, i.e. 100%
+  single-direction by construction.
+- **(iii) sampling density: right sign, 20x too small.** raster/drift
+  samples/beam moves 0.68 -> 0.56 (factor 1.2) while floor/Hi moves 0.056x ->
+  1.64x (factor 29). And at 350-400 the raster is ALREADY the sparsest
+  strategy and wins by 17.9x. **Prior dominance runs the wrong way**: mean
+  diag(WA) = tr(WA)/npix exactly, so no operator is needed -- raster 0.173 vs
+  drift 0.123 at 350-400, 0.146 vs 0.088 at 675-725. The raster is the LESS
+  prior-dominated strategy in both bands. With the cached 350-400 operators
+  the interior can be done properly and says it harder: 0.328 (raster) vs
+  0.204 (drift), both ~1.7x their patch averages.
+- **(iv) brighter footprint: ruled out as the cause.** 7% excess at 675-725,
+  and `drift12m` carries 5.9% while beating the raster by 1.4x.
+
+**What actually changed: the drift's ladder spacing.** Its fixed 2 deg step is
+0.50 beams at 350.78 MHz and 1.00 beams at the 675-725 centre -- heavily
+redundant to contiguous and non-redundant. Same mechanism the draft already
+uses for drift vs drift12m at 700 (1.00 vs 0.60) and for the drift's rise at
+850-900 (1.25 beams, gapped). The drift-raster inversion near 600 MHz is the
+third instance, not a separate effect. Three points, spacing and density not
+varied independently, so still a consistency argument and not a measurement of
+an optimum.
+
+**Two reusable things.**
+
+- **Per-pixel floor maps can be rebuilt without map-making**: PCA the stored
+  `data_cube` at common resolution, take the per-pixel rms over channels.
+  Validated -- reproduces `cr_p_clean_auto_4` to 1 part in 1e6. Medians
+  (real-space, all k_par, NOT the headline numbers, but they reproduce the
+  ordering and the inversion): 350-400 drift 437 / drift12 250 / raster 66;
+  675-725 drift 10.7 / drift12m 15.6 / raster 21.1. The raster's correlation
+  with exposure flips sign between bands (-0.24 -> +0.62) -- do NOT read that
+  as a cause: samples/beam spans only 156-166 across its 675-725 interior
+  while the per-pixel floor spans 13.4-34.6.
+- **Footprints can be reconstructed from the boresight track alone** (stack a
+  Gaussian of the band FWHM, keep the brightest npix pixels). Checked against
+  the two cached 350-400 operators: **94%** of the true pixel set. Enough for
+  brightness statistics at 675-725, where no operator is cached.
+
+**Still missing: interior diag(WA) at 675-725.** `hi_cache/` holds 350-400
+nside 64 only. One channel per strategy at nside 128 is a ~30-60 min local
+operator build; not run, since the brief excluded operator construction.
 
 ## Queued next
 
@@ -1373,7 +2246,7 @@ cached results):
 |---|---|
 | `hi_transfer_function.png` | T(k_par), drift vs raster, one panel per mode count, ±1σ over 20 mocks. The cross-linking result. |
 | `hi_residual_vs_modes.png` | residual/HI vs modes removed, log scale, k-range bars — never approaches 1. |
-| `hi_ablation.png` | floor vs total vs noise-only. Full-data rings sit *on* the floor line; noise is 10-50x below. Common resolution + interior pixels since 2026-08-26 (`fig_ablation(..., tag="cr_")`). |
+| `hi_ablation.png` | floor vs total vs **two** noise arms. Full-data rings sit *on* the floor line. Common resolution + interior pixels since 2026-08-26 (`fig_ablation(..., tag="cr_")`). **The "noise is 10-50x below" reading was wrong and was fixed 2026-10-07 — see "The ablation noise model" in the 2026-10-07 section above.** |
 | `hi_frequency_structure.png` | radial power surviving the map-maker, plus the frequency-structure split that explains why the drift fails. |
 | `hi_patch_maps.png` | the GDSM field and the nested drift/raster/interior footprints. |
 | `hi_maps.png` | map domain: true HI, drift map-made, raster map-made, and the cleaned data on a 50x wider scale. |
@@ -1578,6 +2451,23 @@ The rest of the queue is the *improvement* work.
    integrates `dl·dm` where the measure is `dl·dm/√(1−l²−m²)` — ~0.01% for a
    main-lobe-dominated beam, but it does *not* cancel against the HEALPix
    map-makers, which have no patchbeam awareness.
+
+5. **Retire the word "published" from anything a reader sees.** Nothing in
+   this series is published; the term entered on 2026-08-13 (`6828e1b`) meaning
+   "the experiment-006 baseline the flat-prior audit had to reproduce", and
+   spread to mean "the canonical run, as opposed to a sweep variant". Fine in
+   code, wrong in a figure. Only one live instance reaches the paper:
+   `ska_hi_design.py:1251`, the annotation `"$\star$ = the published run"` in
+   `fig_realisations`, explaining the stars at lines 1250/1271 (realisation
+   index 0 — the seed used in experiment 006). Replace with "fiducial run" and
+   regenerate `hi_realisations.png` + its notebook cell. Two related points:
+   `ska_hi_kmodes.py:175` also plots a star but it marks the *required* sky
+   area, not a fiducial run, so the same glyph means two different things
+   across `hi_kmodes` and `hi_realisations` — worth separating. And the
+   commented-out annotations (`ska_hi_design.py` 517/571/655/784, and the
+   `_title` blocks at design 593 and kmodes 199) all carry the word, so fix
+   them before any of them is uncommented. Docstring/comment uses
+   (`ska_hi_plots.py` 336/613, design 78/449/484/494, kmodes 19) can stay.
 
 ---
 
